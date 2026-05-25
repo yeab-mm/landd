@@ -1,0 +1,157 @@
+// File: src/navigation/AppNavigator.tsx
+// Purpose: Main navigation stack with auth-aware routing
+
+import React from 'react';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
+import { View, ActivityIndicator, Text } from 'react-native';
+
+import { useAuth } from '../context/AuthContext';
+import SettingsScreen from '../screens/SettingsScreen';
+
+// Import all screens
+import OnboardingScreen from '../screens/OnboardingScreen';
+import WelcomeScreen from '../screens/WelcomeScreen';
+import LoginScreen from '../screens/LoginScreen';
+import RegisterScreen from '../screens/RegisterScreen';
+import OTPVerificationScreen from '../screens/OTPVerificationScreen';
+import HomeScreen from '../screens/HomeScreen';
+import MyLandsScreen from '../screens/MyLandsScreen';
+import MyRequestsScreen from '../screens/MyRequestsScreen';
+import MyDocumentsScreen from '../screens/MyDocumentsScreen';
+import SettingsTabScreen from '../screens/SettingsTabScreen';
+import MarketplaceScreen from '../screens/MarketplaceScreen';
+import ForgotPasswordScreen from '../screens/ForgotPasswordScreen';
+import ProfileScreen from '../screens/ProfileScreen';
+import VerificationRequestScreen from '../screens/VerificationRequestScreen';
+import TrackRequestScreen from '../screens/TrackRequestScreen';
+import RegistrationRequestScreen from '../screens/RegistrationRequestScreen';
+import RequestDetailScreen from '../screens/RequestDetailScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import OwnershipTransferScreen from '../screens/OwnershipTransferScreen';
+import AddLandListingScreen from '../screens/AddLandListingScreen';
+import TermsAndConditionsScreen from '../screens/TermsAndConditionsScreen';
+import ChatListScreen from '../screens/ChatListScreen';
+import ChatDetailScreen from '../screens/ChatDetailScreen';
+import OfficerDashboardScreen from '../screens/OfficerDashboardScreen';
+import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import LandSubdivisionScreen from '../screens/LandSubdivisionScreen';
+import LandMutationScreen from '../screens/LandMutationScreen';
+import ZoningChangeScreen from '../screens/ZoningChangeScreen';
+import BlockchainExplorerScreen from '../screens/BlockchainExplorerScreen';
+import TaxDashboardScreen from '../screens/TaxDashboardScreen';
+import PaymentHistoryScreen from '../screens/PaymentHistoryScreen';
+
+const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
+
+function AppTabs() {
+  return (
+    <Tab.Navigator
+      screenOptions={{
+        tabBarActiveTintColor: '#125f43',
+        tabBarInactiveTintColor: '#9CA3AF',
+        tabBarStyle: {
+          backgroundColor: '#FFFFFF',
+          borderTopWidth: 1,
+          borderTopColor: '#E5E7EB',
+          paddingBottom: 8,
+          paddingTop: 8,
+          height: 65,
+        },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        headerShown: false,
+      }}
+    >
+      <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />, tabBarLabel: 'Home' }} />
+      <Tab.Screen name="MyLands" component={MyLandsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="map" color={color} size={size} />, tabBarLabel: 'My Lands' }} />
+      <Tab.Screen name="Notifications" component={NotificationsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="notifications" color={color} size={size} />, tabBarLabel: 'Notifications' }} />
+      <Tab.Screen name="MyDocuments" component={MyDocumentsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="folder" color={color} size={size} />, tabBarLabel: 'My Documents' }} />
+      <Tab.Screen name="SettingsTab" component={SettingsTabScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="settings" color={color} size={size} />, tabBarLabel: 'Settings' }} />
+    </Tab.Navigator>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <View className="flex-1 items-center justify-center bg-gray-50">
+      <ActivityIndicator size="large" color="#125f43" />
+      <Text className="mt-2 text-gray-600">Loading...</Text>
+    </View>
+  );
+}
+
+export default function AppNavigator() {
+  const { token, isLoading, isOtpVerified, pendingPhone, hasSeenOnboarding } = useAuth();
+
+  const getInitialRoute = () => {
+    if (!hasSeenOnboarding) return 'Onboarding';
+    if (!token) return 'Login';
+    if (!isOtpVerified && pendingPhone) return 'OTPVerification';
+    if (isOtpVerified) return 'MainApp';
+    return 'Login';
+  };
+
+  if (isLoading) {
+    return (
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F9FAFB' }}>
+        <ActivityIndicator size="large" color="#125f43" />
+        <Text style={{ marginTop: 10, color: '#4B5563' }}>Loading Portal...</Text>
+      </View>
+    );
+  }
+
+  return (
+    <Stack.Navigator 
+      initialRouteName={getInitialRoute()} 
+      screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+    >
+      {/* Auth Flow */}
+      {!token ? (
+        <>
+          <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Welcome" component={WelcomeScreen} />
+          <Stack.Screen name="Login" component={LoginScreen} />
+          <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
+        </>
+      ) : !isOtpVerified && pendingPhone ? (
+        <Stack.Screen 
+          name="OTPVerification" 
+          component={OTPVerificationScreen} 
+          initialParams={{ phone: pendingPhone }} 
+        />
+      ) : (
+        <>
+          <Stack.Screen name="MainApp" component={AppTabs} />
+          <Stack.Screen name="Profile" component={ProfileScreen} />
+          <Stack.Screen name="Marketplace" component={MarketplaceScreen} />
+          <Stack.Screen name="VerificationRequest" component={VerificationRequestScreen} />
+          <Stack.Screen name="RegistrationRequest" component={RegistrationRequestScreen} />
+          <Stack.Screen name="MyRequests" component={MyRequestsScreen} />
+          <Stack.Screen name="RequestDetail" component={RequestDetailScreen} />
+          <Stack.Screen name="MyLands" component={MyLandsScreen} />
+          <Stack.Screen name="AddLandListing" component={AddLandListingScreen} />
+          <Stack.Screen name="OwnershipTransfer" component={OwnershipTransferScreen} />
+          <Stack.Screen name="TrackRequest" component={TrackRequestScreen} />
+          <Stack.Screen name="Notifications" component={NotificationsScreen} />
+          <Stack.Screen name="ChatList" component={ChatListScreen} />
+          <Stack.Screen name="ChatDetail" component={ChatDetailScreen} />
+          <Stack.Screen name="LandSubdivision" component={LandSubdivisionScreen} />
+          <Stack.Screen name="LandMutation" component={LandMutationScreen} />
+          <Stack.Screen name="ZoningChange" component={ZoningChangeScreen} />
+          <Stack.Screen name="BlockchainExplorer" component={BlockchainExplorerScreen} />
+          <Stack.Screen name="TaxDashboard" component={TaxDashboardScreen} />
+          <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
+          <Stack.Screen name="OfficerDashboard" component={OfficerDashboardScreen} />
+          <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+        </>
+      )}
+      
+      {/* Common Screens */}
+      <Stack.Screen name="TermsAndConditions" component={TermsAndConditionsScreen} />
+    </Stack.Navigator>
+  );
+}

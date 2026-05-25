@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String    @id @default(uuid())
+  email             String?   @unique
+  phone             String?   @unique
+  faydaId           String?   @unique
+  fullName          String
+  password          String
+  role              String    @default("Citizen")
+  status            String    @default("Active")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  lastLogin         DateTime?
+  otpCode           String?
+  otpExpiry         DateTime?
+
+  lands             Land[]
+  requests          Request[]
+  notifications     Notification[]
+  payments          Payment[]
+}
+
+model Land {
+  id            String    @id @default(uuid())
+  plotNumber    String    @unique
+  region        String
+  zone          String
+  wereda        String
+  kebele        String
+  landSize      Float
+  landUseType   String
+  ownerId       String
+  owner         User      @relation(fields: [ownerId], references: [id])
+  verified      Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  requests      Request[]
+}
+
+model Request {
+  id              String    @id @default(uuid())
+  type            String
+  status          String    @default("submitted")
+  referenceNumber String    @unique
+  formData        Json
+  userId          String
+  user            User      @relation(fields: [userId], references: [id])
+  landId          String?
+  land            Land?     @relation(fields: [landId], references: [id])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  documents       Document[]
+}
+
+model Document {
+  id          String   @id @default(uuid())
+  name        String
+  url         String
+  type        String
+  requestId   String
+  request     Request  @relation(fields: [requestId], references: [id])
+  uploadedAt  DateTime @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  title     String
+  message   String
+  type      String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Payment {
+  id            String    @id @default(uuid())
+  userId        String
+  user          User      @relation(fields: [userId], references: [id])
+  amount        Int
+  currency      String    @default("ETB")
+  type          String
+  status        String    @default("pending")
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
