@@ -225,4 +225,75 @@ export const getUsers = async (req: Request, res: Response) => {
     console.error('Get all users error:', error);
     res.status(500).json({ error: 'Failed to fetch users list' });
   }
-};
+};
+
+// ============================================
+// PUT /api/users/:id/role - Update user role (Admin only)
+// ============================================
+export const updateUserRole = async (req: Request, res: Response) => {
+  try {
+    const requesterRole = (req as any).user?.role;
+    
+    if (requesterRole !== 'Admin' && requesterRole !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+
+    const id = String(req.params.id || '');
+    const { role } = req.body;
+
+    if (!role) {
+      return res.status(400).json({ error: 'Role is required' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { role },
+      select: {
+        id: true,
+        fullName: true,
+        role: true,
+      }
+    });
+
+    res.json({ message: 'User role updated successfully', user: updated });
+  } catch (error) {
+    console.error('Update user role error:', error);
+    res.status(500).json({ error: 'Failed to update user role' });
+  }
+};
+
+// ============================================
+// PUT /api/users/:id/status - Update user status (Admin only)
+// ============================================
+export const updateUserStatus = async (req: Request, res: Response) => {
+  try {
+    const requesterRole = (req as any).user?.role;
+    
+    if (requesterRole !== 'Admin' && requesterRole !== 'admin') {
+      return res.status(403).json({ error: 'Forbidden: Admin access required' });
+    }
+
+    const id = String(req.params.id || '');
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+
+    const updated = await prisma.user.update({
+      where: { id },
+      data: { status },
+      select: {
+        id: true,
+        fullName: true,
+        status: true,
+      }
+    });
+
+    res.json({ message: 'User status updated successfully', user: updated });
+  } catch (error) {
+    console.error('Update user status error:', error);
+    res.status(500).json({ error: 'Failed to update user status' });
+  }
+};
+

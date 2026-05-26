@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StatusBar, TextInput, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StatusBar, TextInput, Alert, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../api/config';
 
 type RootStackParamList = {
     MainApp: undefined;
@@ -12,18 +14,40 @@ type RootStackParamList = {
 
 type AdminDashboardScreenProp = StackNavigationProp<RootStackParamList, 'AdminDashboard'>;
 
-const MOCK_USERS = [
-    { id: '1', name: 'John Doe', email: 'john@example.com', role: 'Citizen', status: 'Active' },
-    { id: '2', name: 'Abebe Bikila', email: 'abebe@land.et', role: 'Officer', status: 'Active' },
-    { id: '3', name: 'Sara Jones', email: 'sara@example.com', role: 'Citizen', status: 'Pending' },
-    { id: '4', name: 'Admin One', email: 'admin@digital-land.gov', role: 'Admin', status: 'Active' },
-    { id: '5', name: 'Michael Smith', email: 'mike@example.com', role: 'Citizen', status: 'Suspended' },
-];
-
 export default function AdminDashboardScreen() {
     const navigation = useNavigation<AdminDashboardScreenProp>();
-    const [users, setUsers] = useState(MOCK_USERS);
+    const { token } = useAuth();
+    const [users, setUsers] = useState<any[]>([]);
+    const [loading, setLoading] = useState(true);
     const [search, setSearch] = useState('');
+
+    const fetchUsers = async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/users`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (res.ok && data.users) {
+                const mapped = data.users.map((u: any) => ({
+                    id: u.id,
+                    name: u.fullName || 'N/A',
+                    email: u.email || 'N/A',
+                    role: u.role || 'Citizen',
+                    status: u.status || 'Active'
+                }));
+                setUsers(mapped);
+            }
+        } catch (error) {
+            console.error('Fetch users error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchUsers();
+    }, [token]);
 
     // ✅ Filter users by search query
     const filteredUsers = users.filter(u => 
@@ -36,22 +60,39 @@ export default function AdminDashboardScreen() {
         const user = users.find(u => u.id === id);
         if (!user) return;
         
+        const newRole = user.role === 'Citizen' ? 'Officer' : 'Citizen';
+        
         Alert.alert(
             'Change Role',
-            `Change ${user.name}'s role from ${user.role} to ${user.role === 'Citizen' ? 'Officer' : 'Citizen'}?`,
+            `Change ${user.name}'s role from ${user.role} to ${newRole}?`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 { 
                     text: 'Confirm', 
-                    onPress: () => {
-                        setUsers(prev => prev.map(u => {
-                            if (u.id === id) {
-                                const newRole = u.role === 'Citizen' ? 'Officer' : 'Citizen';
-                                return { ...u, role: newRole };
+                    onPress: async () => {
+                        try {
+                            setLoading(true);
+                            const res = await fetch(`${API_URL}/users/${id}/role`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${token}`
+                                },
+                                body: JSON.stringify({ role: newRole })
+                            });
+                            const data = await res.json();
+                            if (res.ok) {
+                                Alert.alert('Success', 'User role updated');
+                                fetchUsers();
+                            } else {
+                                Alert.alert('Error', data.error || 'Failed to update user role');
                             }
-                            return u;
-                        }));
-                        Alert.alert('Success', 'User role updated');
+                        } catch (error) {
+                            console.error('Update user role error:', error);
+                            Alert.alert('Error', 'Failed to update user role');
+                        } finally {
+                            setLoading(false);
+                        }
                     } 
                 }
             ]
@@ -71,11 +112,30 @@ export default function AdminDashboardScreen() {
                 { 
                     text: 'Suspend', 
                     style: 'destructive',
-                    onPress: () => {
-                        setUsers(prev => prev.map(u => 
-                            u.id === id ? { ...u, status: 'Suspended' } : u
-                        ));
-                        Alert.alert('Suspended', `${user.name} has been suspended`);
+                    onPress: async () => {
+                        try {
+                            setLoading(true);
+                            const res = await fetch(`${API_URL}/users/${id}/status`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${token}`
+                                },
+                                body: JSON.stringify({ status: 'Suspended' })
+                            });
+                            const data = await res.json();
+                            if (res.ok) {
+                                Alert.alert('Suspended', `${user.name} has been suspended`);
+                                fetchUsers();
+                            } else {
+                                Alert.alert('Error', data.error || 'Failed to suspend user');
+                            }
+                        } catch (error) {
+                            console.error('Suspend user error:', error);
+                            Alert.alert('Error', 'Failed to suspend user');
+                        } finally {
+                            setLoading(false);
+                        }
                     } 
                 }
             ]
@@ -130,6 +190,16 @@ export default function AdminDashboardScreen() {
             default: return { bg: 'bg-gray-100', text: 'text-gray-700' };
         }
     };
+
+    if (loading && users.length === 0) {
+        return (
+            <View className="flex-1 items-center justify-center bg-gray-50">
+                <ActivityIndicator size="large" color="#125f43ff" />
+                <Text className="text-gray-600 mt-4">Loading system data...</Text>
+            </View>
+        );
+    }
+
 
     return (
         <View className="flex-1 bg-gray-50">

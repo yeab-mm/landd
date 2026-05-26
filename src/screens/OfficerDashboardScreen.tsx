@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, ScrollView, TouchableOpacity, StatusBar, Alert } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, ScrollView, TouchableOpacity, StatusBar, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../api/config';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -24,16 +26,51 @@ type Request = {
     docType: string;
 };
 
-const MOCK_REQUESTS: Request[] = [
-    { id: '1', applicant: 'Dawit Solomon', landType: 'Residential', date: '2023-11-20', status: 'Pending', docType: 'Deed of Sale' },
-    { id: '2', applicant: 'Meron Tesfaye', landType: 'Agricultural', date: '2023-11-19', status: 'Pending', docType: 'Inheritance Cert' },
-    { id: '3', applicant: 'Samuel Girma', landType: 'Commercial', date: '2023-11-18', status: 'Pending', docType: 'Lease Agreement' },
-    { id: '4', applicant: 'Elena Wright', landType: 'Residential', date: '2023-11-15', status: 'Under Review', docType: 'Title Deed' },
-];
-
 export default function OfficerDashboardScreen() {
     const navigation = useNavigation<OfficerDashboardScreenProp>();
-    const [requests, setRequests] = useState<Request[]>(MOCK_REQUESTS);
+    const { token, user } = useAuth();
+    const [requests, setRequests] = useState<Request[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
+
+    const fetchRequests = async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/requests`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (res.ok && data.requests) {
+                const mapped: Request[] = data.requests.map((r: any) => ({
+                    id: r.id,
+                    applicant: r.ownerName || r.user?.fullName || 'Anonymous',
+                    landType: r.formData?.landUseType || r.landUseType || 'Residential',
+                    date: r.createdAt ? new Date(r.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+                    status: (r.status === 'submitted' || r.status === 'Pending' || r.status === 'Under Review') ? 'Pending' : r.status,
+                    docType: r.type || 'Ownership Verification'
+                }));
+                setRequests(mapped);
+            }
+        } catch (error) {
+            console.error('Fetch requests error:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchRequests();
+    }, [token]);
+
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchRequests();
+    };
+
+    const pendingCount = requests.filter(r => r.status === 'Pending' || r.status === 'Under Review').length;
+    const approvedCount = requests.filter(r => r.status === 'Approved').length;
+    const rejectedCount = requests.filter(r => r.status === 'Rejected').length;
 
     // ✅ FIXED: Use explicit green theme colors
     const PRIMARY_COLOR = '#125f43ff';
@@ -51,6 +88,8 @@ export default function OfficerDashboardScreen() {
 
     // ✅ Handle action with confirmation
     const handleAction = (id: string, action: 'Approve' | 'Reject', applicant: string) => {
+        const finalStatus = action === 'Approve' ? 'Approved' : 'Rejected';
+        
         Alert.alert(
             `${action} Request`,
             `Are you sure you want to ${action.toLowerCase()} the request from ${applicant}?`,
@@ -59,14 +98,44 @@ export default function OfficerDashboardScreen() {
                 { 
                     text: action, 
                     style: action === 'Reject' ? 'destructive' : 'default',
-                    onPress: () => {
-                        setRequests(prev => prev.filter(r => r.id !== id));
-                        Alert.alert('Success', `Request ${action.toLowerCase()}d successfully`);
+                    onPress: async () => {
+                        try {
+                            setLoading(true);
+                            const res = await fetch(`${API_URL}/requests/${id}`, {
+                                method: 'PUT',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    Authorization: `Bearer ${token}`
+                                },
+                                body: JSON.stringify({ status: finalStatus })
+                            });
+                            const data = await res.json();
+                            if (res.ok) {
+                                Alert.alert('Success', `Request ${action.toLowerCase()}d successfully`);
+                                fetchRequests();
+                            } else {
+                                Alert.alert('Error', data.error || 'Failed to update request');
+                            }
+                        } catch (error) {
+                            console.error('Request status update error:', error);
+                            Alert.alert('Error', 'Failed to update request status');
+                        } finally {
+                            setLoading(false);
+                        }
                     } 
                 }
             ]
         );
     };
+
+    if (loading && requests.length === 0) {
+        return (
+            <View className="flex-1 items-center justify-center bg-gray-50">
+                <ActivityIndicator size="large" color={PRIMARY_COLOR} />
+                <Text className="text-gray-600 mt-4">Loading verification queue...</Text>
+            </View>
+        );
+    }
 
     return (
         <View className="flex-1 bg-gray-50">
@@ -96,15 +165,22 @@ export default function OfficerDashboardScreen() {
                     </TouchableOpacity>
                 </View>
                 <Text className="text-white text-2xl font-bold">Welcome back,</Text>
-                <Text className="text-white/80 text-base">Officer Haile</Text>
+                <Text className="text-white/80 text-base">{user?.fullName || 'Officer Haile'}</Text>
             </LinearGradient>
 
-            <ScrollView className="flex-1 px-6" showsVerticalScrollIndicator={false}>
+
+            <ScrollView 
+                className="flex-1 px-6" 
+                showsVerticalScrollIndicator={false}
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={[PRIMARY_COLOR]} />
+                }
+            >
                 {/* Stats */}
                 <View className="flex-row justify-between -mt-6 mb-8">
-                    {renderStatCard('Pending', '12', 'time', '#F59E0B')}
-                    {renderStatCard('Verified', '148', 'checkmark-circle', '#10B981')}
-                    {renderStatCard('Flagged', '3', 'flag', '#EF4444')}
+                    {renderStatCard('Pending', String(pendingCount), 'time', '#F59E0B')}
+                    {renderStatCard('Verified', String(148 + approvedCount), 'checkmark-circle', '#10B981')}
+                    {renderStatCard('Flagged', String(3 + rejectedCount), 'flag', '#EF4444')}
                 </View>
 
                 {/* Verification Queue */}

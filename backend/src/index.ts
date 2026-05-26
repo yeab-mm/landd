@@ -14,9 +14,12 @@ import userRoutes from './routes/user.routes';
 import usersRoutes from './routes/users.routes';
 import landRoutes from './routes/land.routes';
 import requestRoutes from './routes/request.routes';
+import notificationRoutes from './routes/notification.routes';
+import adminRoutes from './routes/admin.routes';
 
 // Create Express app
 const app = express();
+
 
 // ✅ FIX: Convert PORT to number (process.env.PORT is string)
 const PORT = parseInt(process.env.PORT || '3001', 10);
@@ -60,6 +63,12 @@ app.use('/api/lands', landRoutes);
 
 // Request routes (protected)
 app.use('/api/requests', requestRoutes);
+
+// Notification routes (protected)
+app.use('/api/notifications', notificationRoutes);
+
+// Admin compatibility routes (shared backend support for admin panel)
+app.use('/api/admin', adminRoutes);
 
 // 404 handler
 app.use((req: Request, res: Response) => {

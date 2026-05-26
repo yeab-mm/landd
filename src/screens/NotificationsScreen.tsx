@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StatusBar, ScrollView } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, TouchableOpacity, StatusBar, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../api/config';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -16,7 +18,7 @@ type NotificationsScreenProp = StackNavigationProp<RootStackParamList, 'Notifica
 
 // ✅ FIXED: Proper Notification type definition
 type Notification = {
-    id: number;
+    id: string | number;
     title: string;
     message: string;
     time: string;
@@ -25,58 +27,58 @@ type Notification = {
     referenceNumber?: string;
 };
 
-// ✅ Mock Notifications Data
-const MOCK_NOTIFICATIONS: Notification[] = [
-    {
-        id: 1,
-        title: 'Request Submitted',
-        message: 'Your registration request REG-2024-ABC123 has been submitted successfully',
-        time: '2 hours ago',
-        type: 'success',
-        read: false,
-        referenceNumber: 'REG-2024-ABC123',
-    },
-    {
-        id: 2,
-        title: 'Document Review',
-        message: 'Your documents are being reviewed by a land officer',
-        time: '1 day ago',
-        type: 'info',
-        read: false,
-        referenceNumber: 'VER-2024-XYZ789',
-    },
-    {
-        id: 3,
-        title: 'Request Approved',
-        message: 'Congratulations! Your verification request has been approved',
-        time: '3 days ago',
-        type: 'success',
-        read: true,
-        referenceNumber: 'VER-2024-DEF456',
-    },
-    {
-        id: 4,
-        title: 'Additional Documents Required',
-        message: 'Please upload additional documents for your registration request',
-        time: '5 days ago',
-        type: 'warning',
-        read: true,
-        referenceNumber: 'REG-2024-GHI012',
-    },
-    {
-        id: 5,
-        title: 'Field Inspection Scheduled',
-        message: 'Land officer will visit your property on April 10, 2024',
-        time: '1 week ago',
-        type: 'info',
-        read: true,
-        referenceNumber: 'REG-2024-JKL345',
-    },
-];
+const formatTime = (dateStr: string) => {
+    const d = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - d.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 60) {
+        return `${diffMins <= 0 ? 'Just now' : diffMins + 'm ago'}`;
+    } else if (diffHours < 24) {
+        return `${diffHours}h ago`;
+    } else {
+        return `${diffDays}d ago`;
+    }
+};
 
 export default function NotificationsScreen() {
     const navigation = useNavigation<NotificationsScreenProp>();
-    const [notifications, setNotifications] = useState<Notification[]>(MOCK_NOTIFICATIONS);
+    const { token } = useAuth();
+    const [notifications, setNotifications] = useState<Notification[]>([]);
+    const [loading, setLoading] = useState(true);
+
+    const fetchNotifications = async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/notifications`, {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            const data = await res.json();
+            if (res.ok && data.notifications) {
+                const mapped: Notification[] = data.notifications.map((n: any) => ({
+                    id: n.id,
+                    title: n.title,
+                    message: n.message,
+                    time: formatTime(n.createdAt),
+                    type: n.type || 'info',
+                    read: n.isRead,
+                    referenceNumber: n.message.match(/REG-\d+-\w+|VER-\d+-\w+/)?.[0] || undefined
+                }));
+                setNotifications(mapped);
+            }
+        } catch (error) {
+            console.error('Fetch notifications error:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        fetchNotifications();
+    }, [token]);
 
     // ✅ FIXED: Proper typing for icon name return
     const getNotificationIcon = (type: Notification['type']): keyof typeof Ionicons.glyphMap => {
@@ -109,13 +111,24 @@ export default function NotificationsScreen() {
     };
 
     // ✅ Mark as read
-    const markAsRead = (id: number) => {
+    const markAsRead = async (id: string | number) => {
         setNotifications(prev =>
             prev.map(notif =>
                 notif.id === id ? { ...notif, read: true } : notif
             )
         );
+
+        if (!token) return;
+        try {
+            await fetch(`${API_URL}/notifications/${id}/read`, {
+                method: 'PUT',
+                headers: { Authorization: `Bearer ${token}` }
+            });
+        } catch (error) {
+            console.error('Mark as read error:', error);
+        }
     };
+
 
     // ✅ FIXED: Proper typing for notification parameter
     const renderNotificationItem = (notification: Notification) => (
@@ -180,6 +193,15 @@ export default function NotificationsScreen() {
 
     // ✅ Calculate unread count
     const unreadCount = notifications.filter(n => !n.read).length;
+
+    if (loading && notifications.length === 0) {
+        return (
+            <View className="flex-1 items-center justify-center bg-gray-50">
+                <ActivityIndicator size="large" color="#125f43ff" />
+                <Text className="text-gray-600 mt-4">Loading notifications...</Text>
+            </View>
+        );
+    }
 
     return (
         <View className="flex-1 bg-gray-50">
