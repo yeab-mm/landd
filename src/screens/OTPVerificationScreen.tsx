@@ -97,18 +97,7 @@ export default function OTPVerificationScreen({ navigation, route }: {
     try {
       // ✅ Use auth context verifyOtp method (saves full auth state)
       await verifyOtp(phone.replace(/\s/g, ''), otpCode);
-      
-      // ✅ Navigate to homepage (now fully authenticated)
-      Alert.alert(
-        'Success',
-        'Phone verified successfully!',
-        [
-          {
-            text: 'Continue',
-            onPress: () => navigation.replace('MainApp')
-          }
-        ]
-      );
+      // AppNavigator redirects to personalized home when auth state updates
       
     } catch (error: any) {
       console.error('OTP verification error:', error);

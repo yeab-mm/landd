@@ -1,19 +1,16 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { View, Text, TouchableOpacity, StatusBar, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useLanguage } from '../context/LanguageContext';
 import { Language } from '../i18n/translations';
-
-// Components
 import { Button } from '../components/ui/Button';
 
-// ✅ FIXED: Proper navigation types
 type RootStackParamList = {
   Onboarding: undefined;
-  Settings: undefined;        // ← This IS your Language screen
+  Settings: { fromOnboarding?: boolean };
   Welcome: undefined;
   Login: undefined;
   Register: undefined;
@@ -22,9 +19,12 @@ type RootStackParamList = {
 };
 
 type SettingsScreenProp = StackNavigationProp<RootStackParamList, 'Settings'>;
+type SettingsRouteProp = RouteProp<RootStackParamList, 'Settings'>;
 
 export default function SettingsScreen() {
   const navigation = useNavigation<SettingsScreenProp>();
+  const route = useRoute<SettingsRouteProp>();
+  const fromOnboarding = route.params?.fromOnboarding === true;
   const { language, setLanguage, t } = useLanguage();
 
   const languages: { code: Language; name: string; flag: string }[] = [
@@ -32,21 +32,23 @@ export default function SettingsScreen() {
     { code: 'am', name: 'አማርኛ (Amharic)', flag: '🇪🇹' },
   ];
 
-  // ✅ FIXED: Navigate to Welcome after language selection (not MainApp)
   const handleSubmit = () => {
     Alert.alert(
       language === 'am' ? 'ተሳክቷል' : 'Success',
-      language === 'am' 
-        ? `ቋንቋ ወደ ${languages.find(l => l.code === language)?.name} ተቀይሯል` 
-        : `Language set to ${languages.find(l => l.code === language)?.name}`,
+      language === 'am'
+        ? `ቋንቋ ወደ ${languages.find((l) => l.code === language)?.name} ተቀይሯል`
+        : `Language set to ${languages.find((l) => l.code === language)?.name}`,
       [
         {
           text: t('common.continue'),
           style: 'default',
           onPress: () => {
-            // ✅ Navigate to Welcome screen after language selection
-            navigation.replace('Welcome');
-          }
+            if (fromOnboarding) {
+              navigation.replace('Register');
+            } else {
+              navigation.goBack();
+            }
+          },
         },
       ]
     );
@@ -56,7 +58,6 @@ export default function SettingsScreen() {
     <View className="flex-1 bg-gray-50">
       <StatusBar barStyle="light-content" backgroundColor="#125f43ff" />
 
-      {/* Header with Gradient */}
       <LinearGradient
         colors={['#125f43ff', '#125f43ff']}
         start={{ x: 0, y: 0 }}
@@ -75,11 +76,16 @@ export default function SettingsScreen() {
           {language === 'am' ? 'ቋንቋ ይምረጡ' : 'Select Language'}
         </Text>
         <Text className="text-white/80 text-sm">
-          {language === 'am' ? 'የሚመርጡትን ቋንቋ ይምረጡ' : 'Choose your preferred language'}
+          {fromOnboarding
+            ? language === 'am'
+              ? 'ከዚያ መለያዎን ይፍጠሩ እና ያረጋግጡ'
+              : 'Next, create your account and verify your phone'
+            : language === 'am'
+              ? 'የሚመርጡትን ቋንቋ ይምረጡ'
+              : 'Choose your preferred language'}
         </Text>
       </LinearGradient>
 
-      {/* Language Options */}
       <View className="flex-1 px-6 py-8">
         <Text className="text-gray-800 text-lg font-bold mb-6">
           {language === 'am' ? 'የሚገኙ ቋንቋዎች' : 'Available Languages'}
@@ -92,8 +98,6 @@ export default function SettingsScreen() {
               onPress={() => setLanguage(lang.code)}
               className={`flex-row items-center p-4 ${index !== languages.length - 1 ? 'border-b border-gray-100' : ''}`}
               activeOpacity={0.7}
-              accessibilityLabel={`Select ${lang.name} language`}
-              accessibilityState={{ selected: language === lang.code }}
             >
               <Text className="text-3xl mr-4">{lang.flag}</Text>
               <View className="flex-1">
@@ -108,27 +112,23 @@ export default function SettingsScreen() {
           ))}
         </View>
 
-        {/* Info Box */}
         <View className="mt-6 bg-blue-50 rounded-xl p-4 border border-blue-100">
           <View className="flex-row items-start">
             <Ionicons name="information-circle" size={20} color="#2563EB" />
             <Text className="text-blue-700 text-sm ml-2 flex-1">
-              {language === 'am' 
-                ? 'ቋንቋዎን በማንኛውም ጊዜ በቅንብሮች ውስጥ መቀየር ይችላሉ::' 
+              {language === 'am'
+                ? 'ቋንቋዎን በማንኛውም ጊዜ በቅንብሮች ውስጥ መቀየር ይችላሉ።'
                 : 'You can change your language preference anytime in the Settings menu.'}
             </Text>
           </View>
         </View>
 
-        {/* Continue Button */}
         <Button
           title={language === 'am' ? 'ቀጥል' : 'Continue'}
           onPress={handleSubmit}
           className="mt-8"
-          accessibilityLabel="Continue with selected language"
         />
 
-        {/* App Info */}
         <View className="mt-8 items-center">
           <Text className="text-gray-400 text-xs">Digital Land Portal v1.0</Text>
           <Text className="text-gray-400 text-xs mt-1">Bahir Dar University Project</Text>

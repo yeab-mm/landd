@@ -3,6 +3,8 @@
 
 import { Request, Response } from 'express';
 import prisma from '../config/database';
+import { parseFormData, serializeFormData } from '../utils/formData';
+import { REQUIRED_DOCS_BY_TYPE } from '../utils/documentRequirements';
 
 // Unified Submit Request Endpoint
 export const createRequest = async (req: Request, res: Response) => {
@@ -49,7 +51,7 @@ export const createRequest = async (req: Request, res: Response) => {
                 type,
                 status: 'Under Review',
                 referenceNumber,
-                formData,
+                formData: serializeFormData(formData),
                 userId,
             }
         });
@@ -85,7 +87,7 @@ export const getRequests = async (req: Request, res: Response) => {
                 }
             });
             requests = rawRequests.map(req => {
-                const formDataObj = typeof req.formData === 'string' ? JSON.parse(req.formData) : (req.formData as any || {});
+                const formDataObj = parseFormData(req.formData);
                 return {
                     ...req,
                     ownerName: formDataObj.fullName || formDataObj.ownerName || req.user.fullName,
@@ -115,21 +117,21 @@ export const getRequests = async (req: Request, res: Response) => {
 export const getRequestDetail = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user?.userId;
+        const role = (req as any).user?.role;
         if (!userId) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
 
         const { referenceNumber } = req.params;
         const refNum = String(referenceNumber || '');
+        const isOfficer =
+            role === 'Officer' || role === 'Admin' || role === 'officer' || role === 'admin';
 
         const request = await prisma.request.findFirst({
             where: {
-                OR: [
-                    { referenceNumber: refNum },
-                    { id: refNum }
-                ],
-                userId
-            }
+                OR: [{ referenceNumber: refNum }, { id: refNum }],
+                ...(isOfficer ? {} : { userId }),
+            },
         });
 
         if (!request) {
@@ -158,21 +160,86 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
         }
         
         const id = String(req.params.id || '');
-        const { status } = req.body;
+        const { status, docValidation } = req.body;
         
         if (!status) {
             return res.status(400).json({ error: 'Status is required' });
         }
         
+        const currentRequest = await prisma.request.findUnique({
+            where: { id },
+        });
+        if (!currentRequest) {
+            return res.status(404).json({ error: 'Request not found' });
+        }
+
+        const existingFormData = parseFormData(currentRequest.formData);
+        const requestedStatus = String(status);
+        const normalizedStatus = requestedStatus.toLowerCase();
+        const requiredDocs = REQUIRED_DOCS_BY_TYPE[currentRequest.type] || ['Supporting Documents'];
+
+        const needsDocPayload =
+            normalizedStatus === 'approved' ||
+            normalizedStatus === 'document validation' ||
+            normalizedStatus === 'rejected';
+
+        if (needsDocPayload && (!docValidation || typeof docValidation !== 'object')) {
+            return res.status(400).json({
+                error: 'Document authenticity checklist is required for this status change.',
+            });
+        }
+
+        const docsMap = (docValidation?.docs || {}) as Record<string, boolean>;
+
+        if (normalizedStatus === 'approved') {
+            const missingValidation = requiredDocs.filter((doc) => docsMap[doc] !== true);
+            if (missingValidation.length > 0) {
+                return res.status(400).json({
+                    error: `Cannot approve. These documents are not validated as authentic: ${missingValidation.join(', ')}`,
+                });
+            }
+        }
+
+        if (normalizedStatus === 'document validation') {
+            const hasAnyReview = requiredDocs.some(
+                (doc) => docsMap[doc] === true || docsMap[doc] === false
+            );
+            if (!hasAnyReview) {
+                return res.status(400).json({
+                    error: 'Mark at least one document as authentic or not authentic before saving.',
+                });
+            }
+        }
+
+        const displayStatus =
+            normalizedStatus === 'document validation'
+                ? 'Document Validation'
+                : requestedStatus;
+
+        const nextFormData = {
+            ...existingFormData,
+            docAuthenticity: docValidation
+                ? {
+                    ...docValidation,
+                    requiredDocs,
+                    validatedByUserId: userId,
+                    validatedAt: new Date().toISOString(),
+                }
+                : existingFormData.docAuthenticity,
+        };
+
         // Update request status
         const updatedRequest = await prisma.request.update({
             where: { id },
-            data: { status }
+            data: {
+                status: displayStatus,
+                formData: serializeFormData(nextFormData),
+            },
         });
         
         // If approved and request has land details, we should create or verify the Land in database!
-        if (status.toLowerCase() === 'approved') {
-            const formData = updatedRequest.formData as any || {};
+        if (normalizedStatus === 'approved') {
+            const formData = parseFormData(updatedRequest.formData);
             if (formData && formData.plotNumber) {
                 // Check if land already exists
                 const existingLand = await prisma.land.findUnique({

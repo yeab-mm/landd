@@ -1,23 +1,16 @@
-import React, { useEffect } from 'react';
-import { View, Text, TouchableOpacity, StatusBar, ActivityIndicator } from 'react-native';
+import React from 'react';
+import { View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
-
-// ✅ ADD THESE IMPORTS:
-import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 
-// ✅ FIXED: Proper navigation types with ALL screens in flow
 type RootStackParamList = {
   Onboarding: undefined;
-  Language: undefined;
   Welcome: undefined;
   Login: undefined;
   Register: undefined;
   OTPVerification: { phone?: string };
-  MainApp: undefined;
-  Settings: undefined;
   ForgotPassword: undefined;
   TermsAndConditions: undefined;
 };
@@ -26,33 +19,6 @@ type WelcomeScreenProp = StackNavigationProp<RootStackParamList, 'Welcome'>;
 
 export default function WelcomeScreen({ navigation }: { navigation: WelcomeScreenProp }) {
   const { t } = useLanguage();
-  
-  // ✅ ADD THIS: Get auth state from context
-  const { token, isLoading } = useAuth();
-
-  // ✅ ADD THIS: Auto-redirect to MainApp if already logged in
-  useEffect(() => {
-    // Only redirect if we're done loading AND user has a token
-    if (!isLoading && token) {
-      // Small delay for smooth UX
-      const timer = setTimeout(() => {
-        navigation.replace('MainApp');
-      }, 800);
-      return () => clearTimeout(timer);
-    }
-  }, [token, isLoading, navigation]);
-
-  // ✅ ADD THIS: Show loading indicator while checking auth state
-  if (isLoading) {
-    return (
-      <View className="flex-1 items-center justify-center bg-[#125f43ff]">
-        <ActivityIndicator size="large" color="white" />
-        <Text className="text-white mt-4 text-center">
-          {t('common.loading')}
-        </Text>
-      </View>
-    );
-  }
 
   return (
     <View className="flex-1">
@@ -76,9 +42,7 @@ export default function WelcomeScreen({ navigation }: { navigation: WelcomeScree
           </Text>
         </View>
 
-        {/* Action Buttons */}
         <View className="w-full space-y-5 mb-8">
-          {/* Login Button */}
           <TouchableOpacity
             onPress={() => navigation.navigate('Login')}
             className="bg-white py-3 rounded-3xl items-center shadow-lg"
@@ -90,7 +54,6 @@ export default function WelcomeScreen({ navigation }: { navigation: WelcomeScree
             </Text>
           </TouchableOpacity>
 
-          {/* Register Button */}
           <TouchableOpacity
             onPress={() => navigation.navigate('Register')}
             className="bg-white/20 border-2 border-white/20 py-3 rounded-3xl items-center"
@@ -101,28 +64,7 @@ export default function WelcomeScreen({ navigation }: { navigation: WelcomeScree
               {t('welcome.register')}
             </Text>
           </TouchableOpacity>
-
-          {/* Guest Button - Navigate to MainApp */}
-          <TouchableOpacity
-            onPress={() => navigation.navigate('MainApp')}
-            className="py-1 items-center mt-12"
-            activeOpacity={0.8}
-            accessibilityLabel="Continue as guest"
-          >
-            <Text className="text-white/90 text-sm underline">
-              {t('common.guest')}
-            </Text>
-          </TouchableOpacity>
         </View>
-
-        {/* ✅ ADD THIS: Info text for returning users */}
-        {token && (
-          <View className="items-center mt-4">
-            <Text className="text-white/70 text-xs text-center">
-              {t('welcome.alreadyLoggedIn')}
-            </Text>
-          </View>
-        )}
       </LinearGradient>
     </View>
   );

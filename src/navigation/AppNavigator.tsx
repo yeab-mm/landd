@@ -1,16 +1,19 @@
 // File: src/navigation/AppNavigator.tsx
-// Purpose: Main navigation stack with auth-aware routing
+// Auth flow:
+// 1. New user → Onboarding → Language → Register → OTP → Home
+// 2. Returning user (not logged in) → Login → Home
+// 3. Saved session → Home directly
 
-import React from 'react';
+import React, { useEffect } from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { View, ActivityIndicator, Text } from 'react-native';
 
 import { useAuth } from '../context/AuthContext';
 import SettingsScreen from '../screens/SettingsScreen';
 
-// Import all screens
 import OnboardingScreen from '../screens/OnboardingScreen';
 import WelcomeScreen from '../screens/WelcomeScreen';
 import LoginScreen from '../screens/LoginScreen';
@@ -73,25 +76,52 @@ function AppTabs() {
   );
 }
 
-function LoadingScreen() {
-  return (
-    <View className="flex-1 items-center justify-center bg-gray-50">
-      <ActivityIndicator size="large" color="#125f43" />
-      <Text className="mt-2 text-gray-600">Loading...</Text>
-    </View>
-  );
-}
-
 export default function AppNavigator() {
-  const { token, isLoading, isOtpVerified, pendingPhone, hasSeenOnboarding } = useAuth();
+  const navigation = useNavigation<any>();
+  const { token, isLoading, isOtpVerified, pendingPhone, hasSeenOnboarding, user } = useAuth();
+
+  const isAuthenticated = Boolean(token && isOtpVerified);
+  const isAwaitingOtp = Boolean(pendingPhone && !isOtpVerified);
 
   const getInitialRoute = () => {
+    if (isAuthenticated) {
+      const role = (user?.role || '').toLowerCase();
+      if (role === 'officer') return 'OfficerDashboard';
+      if (role === 'admin') return 'AdminDashboard';
+      return 'MainApp';
+    }
+    if (isAwaitingOtp) return 'OTPVerification';
     if (!hasSeenOnboarding) return 'Onboarding';
-    if (!token) return 'Login';
-    if (!isOtpVerified && pendingPhone) return 'OTPVerification';
-    if (isOtpVerified) return 'MainApp';
     return 'Login';
   };
+
+  const stackKey = isAuthenticated ? 'authenticated' : isAwaitingOtp ? 'otp' : 'guest';
+
+  useEffect(() => {
+    if (isLoading) return;
+
+    if (isAuthenticated) {
+      const role = (user?.role || '').toLowerCase();
+      const initialRouteName =
+        role === 'officer'
+          ? 'OfficerDashboard'
+          : role === 'admin'
+            ? 'AdminDashboard'
+            : 'MainApp';
+      navigation.reset({
+        index: 0,
+        routes: [{ name: initialRouteName }],
+      });
+      return;
+    }
+
+    if (isAwaitingOtp && pendingPhone) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'OTPVerification', params: { phone: pendingPhone } }],
+      });
+    }
+  }, [isAuthenticated, isAwaitingOtp, pendingPhone, isLoading, navigation]);
 
   if (isLoading) {
     return (
@@ -103,26 +133,25 @@ export default function AppNavigator() {
   }
 
   return (
-    <Stack.Navigator 
-      initialRouteName={getInitialRoute()} 
+    <Stack.Navigator
+      key={stackKey}
+      initialRouteName={getInitialRoute()}
       screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
     >
-      {/* Auth Flow */}
-      {!token ? (
+      {!isAuthenticated ? (
         <>
           <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          <Stack.Screen name="Settings" component={SettingsScreen} />
           <Stack.Screen name="Welcome" component={WelcomeScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Register" component={RegisterScreen} />
+          <Stack.Screen
+            name="OTPVerification"
+            component={OTPVerificationScreen}
+            initialParams={pendingPhone ? { phone: pendingPhone } : undefined}
+          />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
-          <Stack.Screen name="Settings" component={SettingsScreen} />
         </>
-      ) : !isOtpVerified && pendingPhone ? (
-        <Stack.Screen 
-          name="OTPVerification" 
-          component={OTPVerificationScreen} 
-          initialParams={{ phone: pendingPhone }} 
-        />
       ) : (
         <>
           <Stack.Screen name="MainApp" component={AppTabs} />
@@ -149,9 +178,8 @@ export default function AppNavigator() {
           <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
         </>
       )}
-      
-      {/* Common Screens */}
+
       <Stack.Screen name="TermsAndConditions" component={TermsAndConditionsScreen} />
     </Stack.Navigator>
   );
-}
+}

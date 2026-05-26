@@ -90,14 +90,37 @@ export default function TrackRequestScreen() {
     const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
     const [requests, setRequests] = useState<Request[]>([]);
 
+    const mapBackendStatus = (status: string): Request['status'] => {
+        const s = (status || '').toLowerCase();
+        if (s === 'approved') return 'Approved';
+        if (s === 'rejected') return 'Rejected';
+        if (s === 'document validation') return 'Document Validation';
+        if (s === 'pending' || s === 'submitted' || s === 'under review') return 'Under Review';
+        return 'Under Review';
+    };
+
     const mapBackendRequestToFrontend = (req: any): Request => {
+        const formData =
+            typeof req.formData === 'string'
+                ? (() => {
+                      try {
+                          return JSON.parse(req.formData);
+                      } catch {
+                          return {};
+                      }
+                  })()
+                : req.formData || {};
         return {
             referenceNumber: req.referenceNumber || '',
             requestType: req.type || 'Ownership Verification',
-            submissionDate: req.createdAt ? new Date(req.createdAt).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
-            status: (req.status === 'submitted' || req.status === 'Pending' || req.status === 'Under Review') ? 'Under Review' : req.status,
-            plotNumber: req.formData?.plotNumber || req.plotNumber || 'N/A',
-            location: req.formData?.region ? `${req.formData.region}, ${req.formData.kebele || 'Kebele'}` : (req.region || 'N/A'),
+            submissionDate: req.createdAt
+                ? new Date(req.createdAt).toISOString().split('T')[0]
+                : new Date().toISOString().split('T')[0],
+            status: mapBackendStatus(req.status),
+            plotNumber: formData.plotNumber || req.plotNumber || 'N/A',
+            location: formData.region
+                ? `${formData.region}, ${formData.kebele || 'Kebele'}`
+                : req.region || 'N/A',
         };
     };
 

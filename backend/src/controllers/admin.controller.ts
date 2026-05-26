@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import bcrypt from 'bcryptjs';
 import prisma from '../config/database';
+import { parseFormData, serializeFormData } from '../utils/formData';
 
 const isAdmin = (req: Request) => {
   const role = (req as any).user?.role;
@@ -329,10 +330,7 @@ export const getAdminVerifications = async (req: Request, res: Response) => {
       filters.status = query.status;
     }
     if (query.search) {
-      filters.OR = [
-        { referenceNumber: { contains: String(query.search), mode: 'insensitive' } },
-        { formData: { path: ['fullName'], string_contains: String(query.search) } },
-      ];
+      filters.referenceNumber = { contains: String(query.search) };
     }
 
     const requests = await prisma.request.findMany({
@@ -347,7 +345,7 @@ export const getAdminVerifications = async (req: Request, res: Response) => {
 
     return res.json({
       verifications: requests.map((req) => {
-        const formData = (typeof req.formData === 'object' && req.formData !== null ? req.formData as any : {}) || {};
+        const formData = parseFormData(req.formData);
         return {
           id: req.id,
           applicant: formData.fullName || req.user.fullName || 'N/A',
@@ -406,7 +404,7 @@ export const createAdminVerification = async (req: Request, res: Response) => {
         type: 'Ownership Verification',
         status: 'pending',
         referenceNumber,
-        formData,
+        formData: serializeFormData(formData),
         userId: (req as any).user?.userId,
       },
     });
@@ -430,9 +428,11 @@ export const updateAdminVerificationStatus = async (req: Request, res: Response)
       return res.status(400).json({ error: 'Status is required' });
     }
 
+    const existing = await prisma.request.findUnique({ where: { id } });
+    const merged = { ...parseFormData(existing?.formData), notes };
     const updated = await prisma.request.update({
       where: { id },
-      data: { status, formData: { ...((await prisma.request.findUnique({ where: { id } }))?.formData as object), notes } },
+      data: { status, formData: serializeFormData(merged) },
     });
 
     return res.json({ verification: updated });
@@ -456,10 +456,11 @@ export const updateAdminVerification = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Verification not found' });
     }
 
+    const merged = { ...parseFormData(request.formData), ...data };
     const updated = await prisma.request.update({
       where: { id },
       data: {
-        formData: { ...((request.formData as object) || {}), ...data },
+        formData: serializeFormData(merged),
       },
     });
 
@@ -562,7 +563,7 @@ export const exportVerificationsCsv = async (req: Request, res: Response) => {
 
     const header = 'id,referenceNumber,applicant,email,parcelId,location,status,createdAt\n';
     const rows = requests.map((request) => {
-      const formData = request.formData as any || {};
+      const formData = parseFormData(request.formData);
       return [
         request.id,
         request.referenceNumber,

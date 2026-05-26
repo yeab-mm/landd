@@ -23,7 +23,10 @@ export default function HomeScreen({ navigation }: any) {
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchHomeData = async () => {
-    if (!token) return;
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     try {
       // Fetch profile
       const pRes = await fetch(`${API_URL}/user/me`, { headers: { Authorization: `Bearer ${token}` } });
@@ -80,7 +83,9 @@ export default function HomeScreen({ navigation }: any) {
     { title: 'Track Request', desc: 'Monitor application', icon: 'time', navigate: 'MyRequests' },
   ];
 
-  if (loading && !profile) {
+  const displayName = profile?.fullName || user?.fullName || 'User';
+
+  if (loading && !profile && !user?.fullName) {
     return (
       <View className="flex-1 items-center justify-center bg-gray-50">
         <ActivityIndicator size="large" color="#125f43" />
@@ -100,7 +105,7 @@ export default function HomeScreen({ navigation }: any) {
         <View className="flex-row items-center justify-between mb-2">
           <View>
             <Text className="text-white/80 text-sm">Welcome,</Text>
-            <Text className="text-white text-2xl font-bold">{profile?.fullName || 'User'}</Text>
+            <Text className="text-white text-2xl font-bold">{displayName}</Text>
           </View>
           <TouchableOpacity
             onPress={() => navigation.navigate('Profile')}

@@ -10,6 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
+    "db:setup": "prisma generate && prisma db push && prisma db seed",
+    "db:seed": "prisma db seed",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\""
   },
@@ -29,6 +31,9 @@
     "jsonwebtoken": "^9.0.3",
     "nodemailer": "^8.0.7",
     "twilio": "^6.0.2"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

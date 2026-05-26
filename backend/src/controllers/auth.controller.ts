@@ -145,7 +145,8 @@ export const register = async (req: Request, res: Response): Promise<Response> =
 export const login = async (req: Request, res: Response): Promise<Response> => {
   try {
     const { identifier, password, email } = req.body;
-    const loginIdentifier = identifier || email;
+    const loginIdentifier = (identifier || email || '').trim();
+    const normalizedFayda = loginIdentifier.replace(/\s/g, '');
     
     if (!loginIdentifier || !password) {
       return res.status(400).json({ error: 'Email/phone and password required' });
@@ -155,7 +156,8 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
       where: {
         OR: [
           { email: loginIdentifier.toLowerCase() },
-          { phone: loginIdentifier }
+          { phone: loginIdentifier.replace(/\s/g, '') },
+          { faydaId: normalizedFayda },
         ]
       },
       select: {
@@ -208,7 +210,11 @@ export const login = async (req: Request, res: Response): Promise<Response> => {
     
   } catch (error: any) {
     console.error('Login error:', error);
-    return res.status(500).json({ error: 'Failed to login' });
+    const message =
+      process.env.NODE_ENV === 'development' && error?.message
+        ? `Failed to login: ${error.message}`
+        : 'Failed to login';
+    return res.status(500).json({ error: message });
   }
 };
 

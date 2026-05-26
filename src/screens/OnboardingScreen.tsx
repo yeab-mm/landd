@@ -11,7 +11,7 @@ const { width } = Dimensions.get('window');
 
 type RootStackParamList = {
   Onboarding: undefined;
-  Settings: undefined;
+  Settings: { fromOnboarding?: boolean };
   Welcome: undefined;
   Login: undefined;
   Register: undefined;
@@ -77,13 +77,13 @@ export default function OnboardingScreen() {
       setCurrentIndex(currentIndex + 1);
     } else {
       await completeOnboarding();
-      navigation.navigate('Settings');
+      navigation.navigate('Settings', { fromOnboarding: true });
     }
   };
 
   const handleSkip = async () => {
     await completeOnboarding();
-    navigation.navigate('Settings');
+    navigation.navigate('Settings', { fromOnboarding: true });
   };
 
   const renderSlide = (slide: Slide, index: number) => (

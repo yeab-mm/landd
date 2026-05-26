@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useAuth } from '../context/AuthContext';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -18,6 +19,7 @@ type SettingsTabScreenProp = StackNavigationProp<RootStackParamList, 'SettingsTa
 
 export default function SettingsTabScreen() {
     const navigation = useNavigation<SettingsTabScreenProp>();
+    const { logout } = useAuth();
     const [showReportModal, setShowReportModal] = useState(false);
 
     // ✅ FIXED: Use explicit green theme colors
@@ -27,7 +29,13 @@ export default function SettingsTabScreen() {
     const handleLogout = () => {
         Alert.alert('Logout', 'Are you sure you want to logout?', [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Logout', style: 'destructive', onPress: () => navigation.navigate('Login') },
+            {
+                text: 'Logout',
+                style: 'destructive',
+                onPress: async () => {
+                    await logout();
+                },
+            },
         ]);
     };
 

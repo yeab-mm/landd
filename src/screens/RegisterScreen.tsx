@@ -110,8 +110,11 @@ export default function RegisterScreen({ navigation }: any) {
         address,
         coordinates
       });
-      // Navigate to OTP
-      navigation.navigate('OTPVerification', { phone });
+      // AppNavigator redirects to OTP when pendingPhone is set
+      Alert.alert(
+        'Verify your phone',
+        'Enter the 6-digit code sent to your phone. For testing, you can use 123456.'
+      );
     } catch (error: any) {
       Alert.alert('Registration Error', error.message || 'Failed to create account.');
     } finally {

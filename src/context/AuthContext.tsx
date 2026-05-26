@@ -46,20 +46,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const loadAuthState = async () => {
       try {
         setIsLoading(true);
-        
-        // Clear auth persistence to force user login on every app startup
-        await AsyncStorage.multiRemove([
-          STORAGE_KEYS.TOKEN,
-          STORAGE_KEYS.USER,
-          STORAGE_KEYS.OTP_VERIFIED,
-        ]);
-        
-        const storedPendingPhone = await AsyncStorage.getItem(STORAGE_KEYS.PENDING_PHONE);
+
+        const [storedToken, storedUser, storedOtp, storedPendingPhone, hasSeen] =
+          await Promise.all([
+            AsyncStorage.getItem(STORAGE_KEYS.TOKEN),
+            AsyncStorage.getItem(STORAGE_KEYS.USER),
+            AsyncStorage.getItem(STORAGE_KEYS.OTP_VERIFIED),
+            AsyncStorage.getItem(STORAGE_KEYS.PENDING_PHONE),
+            AsyncStorage.getItem(STORAGE_KEYS.HAS_SEEN_ONBOARDING),
+          ]);
+
+        if (storedToken) {
+          setToken(storedToken);
+          setUser(storedUser ? JSON.parse(storedUser) : null);
+          setIsOtpVerified(storedOtp === 'true');
+        }
+
         setPendingPhone(storedPendingPhone);
-        
-        const hasSeen = await AsyncStorage.getItem(STORAGE_KEYS.HAS_SEEN_ONBOARDING);
         setHasSeenOnboarding(hasSeen === 'true');
-        
       } catch (error) {
         console.error('Failed to load auth state:', error);
       } finally {
@@ -128,16 +132,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const login = async (identifier: string, password: string) => {
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+
       const response = await fetch(`${API_URL}/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifier, password }),
+        body: JSON.stringify({
+          identifier: identifier.trim(),
+          password,
+        }),
+        signal: controller.signal,
       });
 
-      const result = await response.json();
-      
+      clearTimeout(timeout);
+
+      const result = await response.json().catch(() => ({}));
+
       if (!response.ok) {
         throw new Error(result.error || 'Login failed');
+      }
+
+      if (!result.token) {
+        throw new Error('Invalid server response — no token received');
       }
 
       await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, result.token);
@@ -150,8 +167,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsOtpVerified(true);
       setPendingPhone(null);
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
+      if (error?.name === 'AbortError') {
+        throw new Error('Request timed out. Check that the backend is running and reachable.');
+      }
       throw error;
     }
   };
@@ -167,6 +187,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser(null);
     setIsOtpVerified(false);
     setPendingPhone(null);
+    // hasSeenOnboarding stays true → AppNavigator shows Welcome on next mount
   };
 
   const refreshUser = async () => {

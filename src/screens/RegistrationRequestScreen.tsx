@@ -450,6 +450,10 @@ export default function RegistrationRequestScreen() {
 
     // ✅ Validation Functions
     const validateSection = (sectionIndex: number) => {
+        const missingDocs: string[] = [];
+        const addIfMissing = (label: string, value: any) => {
+            if (!value) missingDocs.push(label);
+        };
         switch (sectionIndex) {
             case 0: // Acquisition Type
                 if (!formData.acquisitionType) {
@@ -476,6 +480,27 @@ export default function RegistrationRequestScreen() {
                     Alert.alert('Error', 'Please enter spouse name');
                     return false;
                 }
+
+                // Required identity documents
+                addIfMissing('Kebele ID (Front)', formData.applicantInfo.kebeleIdFront);
+                addIfMissing('Kebele ID (Back)', formData.applicantInfo.kebeleIdBack);
+                addIfMissing('Applicant photo', formData.applicantInfo.applicantPhoto);
+
+                if (formData.applicantInfo.maritalStatus === 'married') {
+                    addIfMissing('Spouse National ID', formData.applicantInfo.spouseNationalId);
+                    addIfMissing('Spouse Kebele ID copy', formData.applicantInfo.spouseKebeleId);
+                }
+
+                if (formData.applicantInfo.relationshipToLand === 'representative') {
+                    addIfMissing('Owner name', formData.applicantInfo.ownerName?.trim());
+                    addIfMissing('Owner national ID', formData.applicantInfo.ownerNationalId?.trim());
+                    addIfMissing('Authorization document', formData.applicantInfo.authorizationDocument);
+                }
+
+                if (missingDocs.length) {
+                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
+                    return false;
+                }
                 break;
             case 3: // Land Information
                 if (!formData.landInfo.landSize || parseFloat(formData.landInfo.landSize) <= 0) {
@@ -490,10 +515,65 @@ export default function RegistrationRequestScreen() {
                     Alert.alert('Error', 'Please select complete location');
                     return false;
                 }
+
+                // If previously registered, require prior certificate / transfer docs
+                if (formData.isPreviouslyRegistered === 'yes') {
+                    addIfMissing('Previous certificate (scan/photo)', formData.landInfo.previousCertificate);
+                    addIfMissing('Previous certificate number', formData.landInfo.previousCertificateNumber?.trim());
+                }
+                if (missingDocs.length) {
+                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
+                    return false;
+                }
+                break;
+            case 4: // Acquisition-Specific Documents
+                // Require docs based on acquisition type
+                if (formData.acquisitionType === 'allocation') {
+                    addIfMissing('Allocation letter', formData.acquisitionDocuments.allocationLetter);
+                    addIfMissing('Government approval', formData.acquisitionDocuments.governmentApproval);
+                    addIfMissing('Allocation payment receipt', formData.acquisitionDocuments.allocationPaymentReceipt);
+                } else if (formData.acquisitionType === 'bidding') {
+                    addIfMissing('Bidding win certificate', formData.acquisitionDocuments.biddingWinCertificate);
+                    addIfMissing('Bidding payment receipt', formData.acquisitionDocuments.biddingPaymentReceipt);
+                    addIfMissing('Auction announcement', formData.acquisitionDocuments.auctionAnnouncement);
+                } else if (formData.acquisitionType === 'inheritance') {
+                    addIfMissing('Death certificate', formData.acquisitionDocuments.deathCertificate);
+                    addIfMissing('Inheritance court document', formData.acquisitionDocuments.inheritanceCourtDocument);
+                    addIfMissing('Family agreement', formData.acquisitionDocuments.familyAgreement);
+                    addIfMissing('Heir list', formData.acquisitionDocuments.heirList);
+                } else if (formData.acquisitionType === 'gift') {
+                    addIfMissing('Gift agreement', formData.acquisitionDocuments.giftAgreement);
+                    addIfMissing('Donor ownership certificate', formData.acquisitionDocuments.donorOwnershipCertificate);
+                    addIfMissing('Donor ID copy', formData.acquisitionDocuments.donorIdCopy);
+                }
+
+                if (missingDocs.length) {
+                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
+                    return false;
+                }
                 break;
             case 5: // Common Documents
                 if (!formData.commonDocuments.surveyMap) {
                     Alert.alert('Error', 'Survey Map is required');
+                    return false;
+                }
+
+                // Require 4 land photos (N/S/E/W)
+                const photos = formData.commonDocuments.landPhotos || [];
+                const missingPhotoCount = photos.filter((p: any) => !p).length;
+                if (missingPhotoCount > 0) {
+                    Alert.alert('Missing photos', 'Please upload all 4 land photos (North, South, East, West).');
+                    return false;
+                }
+
+                // Witnesses: require at least 2 complete witnesses
+                const witnesses = formData.commonDocuments.witnesses || [];
+                const completeWitnesses = witnesses.filter((w: any) => w?.name?.trim() && w?.phone?.trim() && w?.idCopy && w?.statement);
+                if (completeWitnesses.length < 2) {
+                    Alert.alert(
+                        'Missing witness documents',
+                        'Please provide at least 2 witnesses with name, phone, ID copy, and signed statement.'
+                    );
                     return false;
                 }
                 break;
@@ -527,7 +607,10 @@ export default function RegistrationRequestScreen() {
 
     // Handle Submit
     const handleSubmit = async () => {
-        if (!validateSection(6)) return;
+        // Validate all sections (including docs) before submit
+        for (const idx of [0, 1, 2, 3, 4, 5, 6]) {
+            if (!validateSection(idx)) return;
+        }
 
         setLoading(true);
         try {
@@ -552,12 +635,17 @@ export default function RegistrationRequestScreen() {
                         applicantInfo: {
                             fullName: formData.applicantInfo.fullName,
                             nationalId: formData.applicantInfo.nationalId,
+                            kebeleIdFront: formData.applicantInfo.kebeleIdFront,
+                            kebeleIdBack: formData.applicantInfo.kebeleIdBack,
+                            applicantPhoto: formData.applicantInfo.applicantPhoto,
                             maritalStatus: formData.applicantInfo.maritalStatus,
                             spouseName: formData.applicantInfo.spouseName,
                             spouseNationalId: formData.applicantInfo.spouseNationalId,
+                            spouseKebeleId: formData.applicantInfo.spouseKebeleId,
                             relationshipToLand: formData.applicantInfo.relationshipToLand,
                             ownerName: formData.applicantInfo.ownerName,
                             ownerNationalId: formData.applicantInfo.ownerNationalId,
+                            authorizationDocument: formData.applicantInfo.authorizationDocument,
                             phone: formData.applicantInfo.phone,
                             email: formData.applicantInfo.email,
                             address: formData.applicantInfo.address
@@ -565,9 +653,13 @@ export default function RegistrationRequestScreen() {
                         landInfo: {
                             previousCertificateNumber: formData.landInfo.previousCertificateNumber,
                             previousOwnerName: formData.landInfo.previousOwnerName,
+                            previousCertificate: formData.landInfo.previousCertificate,
+                            transferDocument: formData.landInfo.transferDocument,
                             landStatus: formData.landInfo.landStatus,
                             boundaries: formData.landInfo.boundaries
-                        }
+                        },
+                        acquisitionDocuments: formData.acquisitionDocuments,
+                        commonDocuments: formData.commonDocuments,
                     }
                 })
             });

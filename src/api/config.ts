@@ -1,17 +1,82 @@
 // File: src/api/config.ts
 // API configuration for backend connection
 
-// ✅ Android emulator uses 10.0.2.2 for localhost
-// ✅ Physical device uses your computer's IP
-// ✅ iOS simulator can use localhost
-const getApiBaseUrl = () => {
-  // Using localhost with adb reverse for reliable USB-tethered debugging
-  return 'http://localhost:3001/api';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-  // Alternative (Wi-Fi local IP): 'http://10.46.46.11:3001/api'
+const API_PORT = 3001;
+
+const extractHost = (uri: string): string | null => {
+  const withoutScheme = uri.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '');
+  const hostPort = withoutScheme.split('/')[0];
+  const host = hostPort?.split(':')[0];
+  if (!host || host === 'localhost' || host === '127.0.0.1') {
+    return null;
+  }
+  return host;
+};
+
+/** Resolve dev machine IP from Expo / Metro (same host as exp://…:8081). */
+const resolveMetroHost = (): string | null => {
+  const candidates: (string | undefined)[] = [
+    Constants.expoConfig?.hostUri,
+    Constants.linkingUri,
+    (Constants.expoGoConfig as { hostUri?: string } | null)?.hostUri,
+    (Constants.expoGoConfig as { debuggerHost?: string } | null)?.debuggerHost,
+  ];
+
+  for (const uri of candidates) {
+    if (!uri) continue;
+    const host = extractHost(uri);
+    if (host) return host;
+  }
+  return null;
+};
+
+const getDevApiHost = (): string => {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL;
+  if (envUrl) {
+    try {
+      return new URL(envUrl).hostname;
+    } catch {
+      // fall through
+    }
+  }
+
+  const metroHost = resolveMetroHost();
+  if (metroHost) {
+    return metroHost;
+  }
+
+  // Android emulator only — maps host loopback to the PC
+  if (Platform.OS === 'android' && !Constants.isDevice) {
+    return '10.0.2.2';
+  }
+
+  if (Platform.OS === 'ios' && !Constants.isDevice) {
+    return 'localhost';
+  }
+
+  // Physical device: never use 10.0.2.2 (emulator-only)
+  console.warn(
+    '[API] Could not detect Metro host. Set EXPO_PUBLIC_API_URL in .env to http://<your-pc-ip>:3001/api'
+  );
+  return '10.46.46.11';
+};
+
+const getApiBaseUrl = (): string => {
+  const envUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
+  if (envUrl) {
+    return envUrl;
+  }
+  return `http://${getDevApiHost()}:${API_PORT}/api`;
 };
 
 export const API_URL = getApiBaseUrl();
+
+if (__DEV__) {
+  console.log('[API] Using base URL:', API_URL);
+}
 
 // Helper: Get auth token from storage
 const getAuthToken = async (): Promise<string | null> => {
@@ -30,7 +95,7 @@ export const apiRequest = async (
   options: RequestInit = {}
 ): Promise<any> => {
   const token = await getAuthToken();
-  
+
   const headers = {
     'Content-Type': 'application/json',
     ...(token && { Authorization: `Bearer ${token}` }),
@@ -84,7 +149,7 @@ export const authAPI = {
 // User endpoints
 export const userAPI = {
   getProfile: async () => apiRequest('/user/me', { method: 'GET' }),
-  updateProfile: async (profileData: any) => 
+  updateProfile: async (profileData: any) =>
     apiRequest('/user/me', { method: 'PUT', body: JSON.stringify(profileData) }),
 };
 
@@ -92,15 +157,18 @@ export const userAPI = {
 export const landAPI = {
   getLands: async () => apiRequest('/lands', { method: 'GET' }),
   getLand: async (landId: string) => apiRequest(`/lands/${landId}`, { method: 'GET' }),
-  createLand: async (landData: any) => 
+  createLand: async (landData: any) =>
     apiRequest('/lands', { method: 'POST', body: JSON.stringify(landData) }),
 };
 
 // Request endpoints
 export const requestAPI = {
   getRequests: async () => apiRequest('/requests', { method: 'GET' }),
-  createVerification: async (requestData: any) => 
-    apiRequest('/requests/verification', { method: 'POST', body: JSON.stringify(requestData) }),
+  createVerification: async (requestData: any) =>
+    apiRequest('/requests/verification', {
+      method: 'POST',
+      body: JSON.stringify(requestData),
+    }),
 };
 
 // Upload endpoint
@@ -108,13 +176,13 @@ export const uploadAPI = {
   uploadFile: async (file: File) => {
     const formData = new FormData();
     formData.append('file', file as any);
-    
+
     const token = await getAuthToken();
-    
+
     return fetch(`${API_URL}/uploads`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
-    }).then(res => res.json());
+    }).then((res) => res.json());
   },
 };
