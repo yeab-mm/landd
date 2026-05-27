@@ -1,122 +1,144 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
+import type { ReactNode } from 'react'
+import { Navigate, Route, Routes } from 'react-router-dom'
+import { AuthProvider, useAuth } from './context/AuthContext'
+import LoginPage from './pages/LoginPage'
+import AdminOverviewPage from './pages/admin/AdminOverviewPage'
+import AdminUsersPage from './pages/admin/AdminUsersPage'
+import AdminMarketplacePage from './pages/admin/AdminMarketplacePage'
+import AdminPaymentsPage from './pages/admin/AdminPaymentsPage'
+import AdminReportsPage from './pages/admin/AdminReportsPage'
+import AdminSettingsPage from './pages/admin/AdminSettingsPage'
+import OfficerOverviewPage from './pages/officer/OfficerOverviewPage'
+import OfficerVerificationQueuePage from './pages/officer/OfficerVerificationQueuePage'
+import OfficerRequestQueuePage from './pages/officer/OfficerRequestQueuePage'
 import './App.css'
 
-function App() {
-  const [count, setCount] = useState(0)
+function RequireRole({
+  role,
+  children,
+}: {
+  role: 'admin' | 'officer'
+  children: ReactNode
+}) {
+  const { token, user } = useAuth()
+  if (!token || !user) return <Navigate to="/login" replace />
+  if (user.role !== role) {
+    if (user.role === 'admin') return <Navigate to="/admin" replace />
+    if (user.role === 'officer') return <Navigate to="/officer" replace />
+    return <Navigate to="/login" replace state={{ denied: true }} />
+  }
+  return <>{children}</>
+}
+
+function AppRoutes() {
+  const { token, user } = useAuth()
 
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
-        </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.tsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
-
-      <div className="ticks"></div>
-
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+    <Routes>
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          !token ? (
+            <Navigate to="/login" replace />
+          ) : user?.role === 'admin' ? (
+            <Navigate to="/admin" replace />
+          ) : user?.role === 'officer' ? (
+            <Navigate to="/officer" replace />
+          ) : (
+            <Navigate to="/login" replace state={{ denied: true }} />
+          )
+        }
+      />
+      <Route
+        path="/officer"
+        element={
+          <RequireRole role="officer">
+            <OfficerOverviewPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/officer/verification"
+        element={
+          <RequireRole role="officer">
+            <OfficerVerificationQueuePage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/officer/transfers"
+        element={
+          <RequireRole role="officer">
+            <OfficerRequestQueuePage kind="transfer" />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/officer/services"
+        element={
+          <RequireRole role="officer">
+            <OfficerRequestQueuePage kind="service" />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin"
+        element={
+          <RequireRole role="admin">
+            <AdminOverviewPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <RequireRole role="admin">
+            <AdminUsersPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/marketplace"
+        element={
+          <RequireRole role="admin">
+            <AdminMarketplacePage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/payments"
+        element={
+          <RequireRole role="admin">
+            <AdminPaymentsPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/reports"
+        element={
+          <RequireRole role="admin">
+            <AdminReportsPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/settings"
+        element={
+          <RequireRole role="admin">
+            <AdminSettingsPage />
+          </RequireRole>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
   )
 }
 
-export default App
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppRoutes />
+    </AuthProvider>
+  )
+}
