@@ -194,7 +194,13 @@ export default function OfficerDashboardScreen() {
     try {
       setSubmitting(true);
       await submitStatusUpdate(reviewTarget.id, 'Approved', docs, notes);
-      Alert.alert('Approved', 'All documents verified as authentic.');
+      const isMarketplace = (reviewTarget.type || '') === 'Marketplace Listing';
+      Alert.alert(
+        isMarketplace ? 'Published' : 'Approved',
+        isMarketplace
+          ? 'Listing is now live in the marketplace.'
+          : 'All documents verified. Land is registered on My Lands.'
+      );
       setReviewTarget(null);
       fetchRequests();
     } catch (e: any) {

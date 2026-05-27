@@ -55,8 +55,10 @@ export default function AddLandListingScreen() {
         },
         plotNumber: '',
         images: [] as Array<{ name: string; uri: string }>,
+        documents: {} as Record<string, { name: string; uri: string }>,
         acceptTerms: false,
     });
+    const requiredDocs = ['Title Deed', 'Survey Map', 'Kebele ID (Front)', 'Tax Clearance'];
 
     const sections = [
         { title: 'Basic Info', icon: 'information-circle' as const },
@@ -79,7 +81,11 @@ export default function AddLandListingScreen() {
             case 1:
                 return isValidPlotNumber(formData.plotNumber) && !!formData.location.kebele.trim();
             case 2:
-                return !!formData.description.trim() && formData.images.length > 0;
+                return (
+                    !!formData.description.trim() &&
+                    formData.images.length > 0 &&
+                    requiredDocs.every((doc) => Boolean(formData.documents[doc]?.uri))
+                );
             case 3:
                 return formData.acceptTerms;
             default:
@@ -131,16 +137,51 @@ export default function AddLandListingScreen() {
         }));
     };
 
+    const mimeFromName = (name: string) => {
+        const lower = name.toLowerCase();
+        if (lower.endsWith('.pdf')) return 'application/pdf';
+        if (lower.endsWith('.png')) return 'image/png';
+        return 'image/jpeg';
+    };
+
+    const pickRequiredDocument = async (docName: string) => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'],
+                copyToCacheDirectory: true,
+                base64: true,
+            });
+            if (result.canceled || !result.assets || result.assets.length === 0) return;
+            const file = result.assets[0];
+            if (!file.base64) {
+                Alert.alert('Error', 'Could not read file for upload. Try another file.');
+                return;
+            }
+            const mime = file.mimeType || mimeFromName(file.name || docName);
+            const dataUrl = `data:${mime};base64,${file.base64}`;
+            setFormData((prev) => ({
+                ...prev,
+                documents: {
+                    ...prev.documents,
+                    [docName]: { name: file.name || docName, uri: dataUrl },
+                },
+            }));
+        } catch (error) {
+            console.error('Document upload error:', error);
+            Alert.alert('Error', 'Could not select document. Please try again.');
+        }
+    };
+
     const handleSubmit = async () => {
         if (!isSectionValid(3)) {
-            Alert.alert('Error', 'Please accept the terms to publish');
+            Alert.alert('Error', 'Please accept the terms to submit');
             return;
         }
 
         setLoading(true);
         
         try {
-            const response = await fetch(`${API_URL}/lands`, {
+            const response = await fetch(`${API_URL}/marketplace/listings`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -154,27 +195,31 @@ export default function AddLandListingScreen() {
                     plotNumber: formData.plotNumber,
                     region: formData.location.region,
                     zone: formData.location.zone,
-                    wereda: formData.location.kebele, // Mapping kebele to wereda or using as needed
                     kebele: formData.location.kebele,
                     landSize: formData.area,
                     landUseType: formData.landUseType,
                     description: formData.description,
+                    images: formData.images.map((i) => i.uri),
+                    documents: Object.fromEntries(
+                        requiredDocs
+                            .filter((doc) => formData.documents[doc]?.uri)
+                            .map((doc) => [doc, formData.documents[doc].uri])
+                    ),
                 }),
             });
 
             if (!response.ok) {
                 const errorData = await response.json();
-                throw new Error(errorData.error || 'Failed to submit land listing');
+                throw new Error(errorData.error || 'Failed to submit listing request');
             }
 
+            const data = await response.json();
+
             Alert.alert(
-                'Success', 
-                'Land listing published successfully!', 
+                'Submitted for review',
+                data.message || 'Admin will validate your documents and forward to an officer. Your listing goes live after officer approval.',
                 [
-                    { 
-                        text: 'View in Marketplace', 
-                        onPress: () => navigation.navigate('Marketplace') 
-                    }
+                    { text: 'OK', onPress: () => navigation.goBack() },
                 ]
             );
         } catch (error: any) {
@@ -205,7 +250,7 @@ export default function AddLandListingScreen() {
                 />
             ) : (
                 <Button
-                    title="Publish Listing"
+                    title="Submit for Review"
                     onPress={handleSubmit}
                     loading={loading}
                     icon="checkmark-circle" as const
@@ -367,6 +412,33 @@ export default function AddLandListingScreen() {
                                                         <Ionicons name="add" size={30} color="#9CA3AF" />
                                                     </TouchableOpacity>
                                                 )}
+                                            </View>
+
+                                            <Text className="text-gray-700 font-bold text-sm mb-2 mt-3">Required Documents *</Text>
+                                            <Text className="text-gray-400 text-[10px] mb-3">Upload all four documents for admin/officer review</Text>
+                                            <View className="gap-2 mb-4">
+                                                {requiredDocs.map((doc) => {
+                                                    const selected = formData.documents[doc];
+                                                    return (
+                                                        <TouchableOpacity
+                                                            key={doc}
+                                                            onPress={() => pickRequiredDocument(doc)}
+                                                            className="border border-gray-200 rounded-xl px-3 py-3 bg-gray-50 flex-row items-center justify-between"
+                                                        >
+                                                            <View className="flex-1 pr-3">
+                                                                <Text className="text-gray-700 font-semibold text-xs">{doc}</Text>
+                                                                <Text className="text-gray-500 text-[10px]" numberOfLines={1}>
+                                                                    {selected ? selected.name : 'Tap to upload'}
+                                                                </Text>
+                                                            </View>
+                                                            <Ionicons
+                                                                name={selected ? 'checkmark-circle' : 'cloud-upload-outline'}
+                                                                size={18}
+                                                                color={selected ? '#16a34a' : '#9CA3AF'}
+                                                            />
+                                                        </TouchableOpacity>
+                                                    );
+                                                })}
                                             </View>
 
                                             <Input

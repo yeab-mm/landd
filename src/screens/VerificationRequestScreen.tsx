@@ -17,7 +17,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import { useAuth } from '../context/AuthContext';
@@ -139,9 +139,10 @@ const DropdownField = ({
 
 export default function VerificationRequestScreen() {
     const navigation = useNavigation<VerificationRequestScreenProp>();
-    const { user, token } = useAuth();
+    const { user, token, refreshUser } = useAuth();
     const scrollViewRef = useRef<ScrollView>(null);
     const [currentSection, setCurrentSection] = useState(0);
+    const [profile, setProfile] = useState<any>(null);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -181,15 +182,51 @@ export default function VerificationRequestScreen() {
         acceptDeclaration2: false,
     });
 
-    useEffect(() => {
-        if (user) {
-            setFormData(prev => ({
-                ...prev,
-                ownerName: user.fullName || '',
-                ownerNationalId: user.faydaId || '',
-            }));
+    const applyOwnerFromAccount = (account: { fullName?: string; faydaId?: string } | null) => {
+        if (!account) return;
+        setFormData((prev) => ({
+            ...prev,
+            ownerName: account.fullName?.trim() || prev.ownerName,
+            ownerNationalId: account.faydaId?.trim() || prev.ownerNationalId,
+            relationship: prev.relationship || 'Owner',
+        }));
+    };
+
+    const resolveOwnerFields = () => {
+        const account = profile || user;
+        return {
+            ownerName: (formData.ownerName || account?.fullName || '').trim(),
+            ownerNationalId: (formData.ownerNationalId || account?.faydaId || '').trim(),
+            relationship: formData.relationship || 'Owner',
+        };
+    };
+
+    const loadAccountProfile = async () => {
+        if (!token) return;
+        try {
+            const res = await fetch(`${API_URL}/user/me`, {
+                headers: { Authorization: `Bearer ${token}` },
+            });
+            const data = await res.json();
+            if (res.ok && data.user) {
+                setProfile(data.user);
+                applyOwnerFromAccount(data.user);
+            }
+        } catch (error) {
+            console.error('Load profile for verification:', error);
         }
+    };
+
+    useEffect(() => {
+        applyOwnerFromAccount(user);
     }, [user]);
+
+    useFocusEffect(
+        React.useCallback(() => {
+            refreshUser();
+            loadAccountProfile();
+        }, [token])
+    );
 
     const [loading, setLoading] = useState(false);
     const [locationLoading, setLocationLoading] = useState(false);
@@ -276,20 +313,32 @@ export default function VerificationRequestScreen() {
         return true;
     };
 
-    // Validate Section 2 (Owner Information)
+    // Validate Section 2 (Owner Information) — uses logged-in account when fields are empty
     const validateOwnerInformation = () => {
-        if (!formData.ownerName.trim()) {
-            Alert.alert('Error', 'Owner name is required');
+        const owner = resolveOwnerFields();
+
+        if (!owner.ownerName) {
+            Alert.alert('Error', 'Owner name is required. Complete your profile or sign in again.');
             return false;
         }
-        if (!formData.ownerNationalId.trim()) {
-            Alert.alert('Error', 'National ID is required');
+        if (!owner.ownerNationalId) {
+            Alert.alert(
+                'Error',
+                'National ID (Fayda) is required. Update your profile with your Fayda ID, then try again.'
+            );
             return false;
         }
-        if (!formData.relationship) {
+        if (!owner.relationship) {
             Alert.alert('Error', 'Please select relationship to land');
             return false;
         }
+
+        setFormData((prev) => ({
+            ...prev,
+            ownerName: owner.ownerName,
+            ownerNationalId: owner.ownerNationalId,
+            relationship: owner.relationship,
+        }));
         return true;
     };
 
@@ -686,8 +735,26 @@ export default function VerificationRequestScreen() {
     );
 
     // Section 2: Owner Information
-    const renderOwnerInformation = () => (
+    const renderOwnerInformation = () => {
+        const account = profile || user;
+        const displayName = formData.ownerName || account?.fullName || '';
+        const displayFayda = formData.ownerNationalId || account?.faydaId || '';
+        const accountReady = Boolean(displayName && displayFayda);
+
+        return (
         <View className="w-full">
+            <View className="mb-4 p-3 rounded-xl bg-[#125f43ff]/10 border border-[#125f43ff]/20">
+                <Text className="text-[#125f43ff] text-sm font-semibold">
+                    Loaded from your account
+                </Text>
+                <Text className="text-gray-600 text-xs mt-1 leading-5">
+                    Name and Fayda ID are taken from your login. Relationship defaults to Owner — tap Continue when ready.
+                </Text>
+                {account?.email ? (
+                    <Text className="text-gray-500 text-xs mt-1">{account.email}</Text>
+                ) : null}
+            </View>
+
             {/* Owner Name */}
             <View className="mb-4">
                 <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">Owner Name *</Text>
@@ -695,11 +762,14 @@ export default function VerificationRequestScreen() {
                     <Ionicons name="person" size={22} color="#9CA3AF" />
                     <TextInput
                         className="flex-1 text-gray-800 text-base ml-3"
-                        placeholder="Auto-filled from profile"
+                        placeholder="From your account"
                         placeholderTextColor="#9CA3AF"
-                        value={formData.ownerName}
-                        onChangeText={(text) => setFormData(prev => ({ ...prev, ownerName: text }))}
+                        value={displayName}
+                        editable={false}
                     />
+                    {displayName ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
+                    ) : null}
                 </View>
             </View>
 
@@ -710,14 +780,18 @@ export default function VerificationRequestScreen() {
                     <Ionicons name="card" size={22} color="#9CA3AF" />
                     <TextInput
                         className="flex-1 text-gray-800 text-base ml-3"
-                        placeholder="1234 5678 9012 3456"
+                        placeholder="From your account"
                         placeholderTextColor="#9CA3AF"
-                        value={formData.ownerNationalId}
+                        value={displayFayda}
                         editable={false}
                     />
-                    <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
+                    {displayFayda ? (
+                        <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
+                    ) : null}
                 </View>
-                <Text className="text-gray-500 text-xs mt-1 ml-1">✓ Verified from profile</Text>
+                <Text className="text-gray-500 text-xs mt-1 ml-1">
+                    {displayFayda ? '✓ Verified from your login credentials' : 'Fayda ID missing — update profile'}
+                </Text>
             </View>
 
             {/* Relationship */}
@@ -739,8 +813,15 @@ export default function VerificationRequestScreen() {
                     ))}
                 </View>
             </View>
+
+            {!accountReady && (
+                <Text className="text-amber-700 text-xs mb-2">
+                    Sign out and register again with a complete Fayda ID, or update your profile.
+                </Text>
+            )}
         </View>
-    );
+        );
+    };
 
     // Section 3: Documents
     const renderDocuments = () => (

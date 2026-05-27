@@ -422,10 +422,18 @@ export const updateAdminVerificationStatus = async (req: Request, res: Response)
       return res.status(403).json({ error: 'Forbidden: Admin or Officer access required' });
     }
 
+    const role = ((req as any).user?.role || '').toLowerCase();
     const id = String(req.params.id || '');
     const { status, notes } = req.body;
     if (!status) {
       return res.status(400).json({ error: 'Status is required' });
+    }
+
+    const statusNorm = String(status).toLowerCase();
+    if (role === 'admin' && ['approved', 'rejected'].includes(statusNorm)) {
+      return res.status(403).json({
+        error: 'Admins cannot approve requests. Forward to an officer via Request intake.',
+      });
     }
 
     const existing = await prisma.request.findUnique({ where: { id } });

@@ -161,6 +161,20 @@ export const landAPI = {
     apiRequest('/lands', { method: 'POST', body: JSON.stringify(landData) }),
 };
 
+export const marketplaceAPI = {
+  getListings: async () => apiRequest('/marketplace/listings', { method: 'GET' }),
+  submitListing: async (data: Record<string, unknown>) =>
+    apiRequest('/marketplace/listings', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+export const chatAPI = {
+  startConversation: async (landId: string) =>
+    apiRequest('/chat/conversations', { method: 'POST', body: JSON.stringify({ landId }) }),
+  getConversations: async () => apiRequest('/chat/conversations', { method: 'GET' }),
+  getMessages: async (conversationId: string) =>
+    apiRequest(`/chat/conversations/${conversationId}/messages`, { method: 'GET' }),
+};
+
 // Request endpoints
 export const requestAPI = {
   getRequests: async () => apiRequest('/requests', { method: 'GET' }),

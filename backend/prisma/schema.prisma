@@ -29,21 +29,53 @@ model User {
 }
 
 model Land {
-  id            String    @id @default(uuid())
-  plotNumber    String    @unique
-  region        String
-  zone          String
-  wereda        String
-  kebele        String
-  landSize      Float
-  landUseType   String
-  ownerId       String
-  owner         User      @relation(fields: [ownerId], references: [id])
-  verified      Boolean   @default(false)
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  plotNumber         String    @unique
+  region             String
+  zone               String
+  wereda             String
+  kebele             String
+  landSize           Float
+  landUseType        String
+  ownerId            String
+  owner              User      @relation(fields: [ownerId], references: [id])
+  verified           Boolean   @default(false)
+  listingStatus      String?
+  forSale            Boolean   @default(false)
+  listingTitle       String?
+  listingPrice       Int?
+  transactionType    String?
+  listingDescription String?
+  listingImages      String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  requests      Request[]
+  requests           Request[]
+  chatConversations  ChatConversation[]
+}
+
+model ChatConversation {
+  id          String   @id @default(uuid())
+  landId      String
+  land        Land     @relation(fields: [landId], references: [id])
+  sellerId    String
+  buyerId     String
+  status      String   @default("open")
+  adminLocked Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  messages    ChatMessage[]
+
+  @@unique([landId, buyerId])
+}
+
+model ChatMessage {
+  id             String           @id @default(uuid())
+  conversationId String
+  conversation   ChatConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId       String
+  content        String
+  createdAt      DateTime         @default(now())
 }
 
 model Request {

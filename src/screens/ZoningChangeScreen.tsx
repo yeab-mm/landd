@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useAuth } from '../context/AuthContext';
+import { submitServiceRequest } from '../api/requests';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -19,6 +21,7 @@ const ZONES = ['Residential', 'Commercial', 'Industrial', 'Agricultural', 'Insti
 
 export default function ZoningChangeScreen() {
     const navigation = useNavigation<ZoningChangeScreenProp>();
+    const { token } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [submitting, setSubmitting] = useState(false);
     
@@ -60,33 +63,40 @@ export default function ZoningChangeScreen() {
             Alert.alert('Error', 'Please complete all required fields');
             return;
         }
-        
+        if (!token) {
+            Alert.alert('Login required', 'Please sign in to submit this service.');
+            return;
+        }
+
         setSubmitting(true);
-        
+
         try {
-            // Simulate API call
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Generate reference number
-            const referenceNumber = `ZONE-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-            
+            const data = await submitServiceRequest(token, 'Zoning Change', {
+                plotNumber: formData.landId,
+                landUseType: formData.targetZone,
+                justification: formData.justification,
+                impactLevel: formData.impactLevel,
+            });
+            const referenceNumber = data.request?.referenceNumber;
+
             Alert.alert(
                 'Success',
                 `Zoning change request submitted!\nReference: ${referenceNumber}`,
                 [
-                    { 
-                        text: 'Track Request', 
-                        onPress: () => navigation.navigate('ZoningSuccess', { referenceNumber })
+                    { text: 'Track Request', onPress: () => navigation.navigate('MyRequests') },
+                    {
+                        text: 'Submit Another',
+                        style: 'cancel',
+                        onPress: () => {
+                            setCurrentStep(1);
+                            setFormData({ landId: '', targetZone: '', justification: '', impactLevel: 'Low' });
+                        },
                     },
-                    { text: 'Submit Another', style: 'cancel', onPress: () => {
-                        setCurrentStep(1);
-                        setFormData({ landId: '', targetZone: '', justification: '', impactLevel: 'Low' });
-                    }}
                 ]
             );
-        } catch (error) {
+        } catch (error: any) {
             console.error('Submit error:', error);
-            Alert.alert('Error', 'Failed to submit zoning change. Please try again.');
+            Alert.alert('Error', error.message || 'Failed to submit zoning change. Please try again.');
         } finally {
             setSubmitting(false);
         }

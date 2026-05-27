@@ -9,9 +9,10 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import { View, ActivityIndicator, Text } from 'react-native';
+import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 
 import { useAuth } from '../context/AuthContext';
+import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
 import SettingsScreen from '../screens/SettingsScreen';
 
 import OnboardingScreen from '../screens/OnboardingScreen';
@@ -37,8 +38,7 @@ import AddLandListingScreen from '../screens/AddLandListingScreen';
 import TermsAndConditionsScreen from '../screens/TermsAndConditionsScreen';
 import ChatListScreen from '../screens/ChatListScreen';
 import ChatDetailScreen from '../screens/ChatDetailScreen';
-import OfficerDashboardScreen from '../screens/OfficerDashboardScreen';
-import AdminDashboardScreen from '../screens/AdminDashboardScreen';
+import WebPortalScreen from '../screens/WebPortalScreen';
 import LandSubdivisionScreen from '../screens/LandSubdivisionScreen';
 import LandMutationScreen from '../screens/LandMutationScreen';
 import ZoningChangeScreen from '../screens/ZoningChangeScreen';
@@ -49,7 +49,23 @@ import PaymentHistoryScreen from '../screens/PaymentHistoryScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+function TabNotificationIcon({ color, size }: { color: string; size: number }) {
+  const { unreadCount } = useUnreadNotifications();
+  return (
+    <View>
+      <Ionicons name="notifications" color={color} size={size} />
+      {unreadCount > 0 && (
+        <View style={tabStyles.badge}>
+          <Text style={tabStyles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+        </View>
+      )}
+    </View>
+  );
+}
+
 function AppTabs() {
+  const { refreshUnread } = useUnreadNotifications();
+
   return (
     <Tab.Navigator
       screenOptions={{
@@ -69,7 +85,15 @@ function AppTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />, tabBarLabel: 'Home' }} />
       <Tab.Screen name="MyLands" component={MyLandsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="map" color={color} size={size} />, tabBarLabel: 'My Lands' }} />
-      <Tab.Screen name="Notifications" component={NotificationsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="notifications" color={color} size={size} />, tabBarLabel: 'Notifications' }} />
+      <Tab.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        listeners={{ focus: () => refreshUnread() }}
+        options={{
+          tabBarIcon: ({ color, size }) => <TabNotificationIcon color={color} size={size} />,
+          tabBarLabel: 'Notifications',
+        }}
+      />
       <Tab.Screen name="MyDocuments" component={MyDocumentsScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="folder" color={color} size={size} />, tabBarLabel: 'My Documents' }} />
       <Tab.Screen name="SettingsTab" component={SettingsTabScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="settings" color={color} size={size} />, tabBarLabel: 'Settings' }} />
     </Tab.Navigator>
@@ -86,8 +110,7 @@ export default function AppNavigator() {
   const getInitialRoute = () => {
     if (isAuthenticated) {
       const role = (user?.role || '').toLowerCase();
-      if (role === 'officer') return 'OfficerDashboard';
-      if (role === 'admin') return 'AdminDashboard';
+      if (role === 'officer' || role === 'admin') return 'WebPortal';
       return 'MainApp';
     }
     if (isAwaitingOtp) return 'OTPVerification';
@@ -103,11 +126,7 @@ export default function AppNavigator() {
     if (isAuthenticated) {
       const role = (user?.role || '').toLowerCase();
       const initialRouteName =
-        role === 'officer'
-          ? 'OfficerDashboard'
-          : role === 'admin'
-            ? 'AdminDashboard'
-            : 'MainApp';
+        role === 'officer' || role === 'admin' ? 'WebPortal' : 'MainApp';
       navigation.reset({
         index: 0,
         routes: [{ name: initialRouteName }],
@@ -174,8 +193,7 @@ export default function AppNavigator() {
           <Stack.Screen name="BlockchainExplorer" component={BlockchainExplorerScreen} />
           <Stack.Screen name="TaxDashboard" component={TaxDashboardScreen} />
           <Stack.Screen name="PaymentHistory" component={PaymentHistoryScreen} />
-          <Stack.Screen name="OfficerDashboard" component={OfficerDashboardScreen} />
-          <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} />
+          <Stack.Screen name="WebPortal" component={WebPortalScreen} />
         </>
       )}
 
@@ -183,3 +201,25 @@ export default function AppNavigator() {
     </Stack.Navigator>
   );
 }
+
+const tabStyles = StyleSheet.create({
+  badge: {
+    position: 'absolute',
+    right: -6,
+    top: -4,
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  badgeText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+});

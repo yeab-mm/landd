@@ -6,6 +6,7 @@ import { StackNavigationProp } from '@react-navigation/stack';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api/config';
+import { normalizeStatus } from '../api/requests';
 
 type RootStackParamList = {
     MyRequests: undefined;
@@ -32,7 +33,12 @@ export default function MyRequestsScreen() {
             });
             const data = await response.json();
             if (response.ok) {
-                setRequests(data.requests);
+                setRequests(
+                    (data.requests || []).map((r: any) => ({
+                        ...r,
+                        status: normalizeStatus(r.status),
+                    }))
+                );
             }
         } catch (error) {
             console.error('Fetch requests error:', error);

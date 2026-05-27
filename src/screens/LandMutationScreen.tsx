@@ -13,6 +13,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
+import { useAuth } from '../context/AuthContext';
+import { submitServiceRequest } from '../api/requests';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -27,6 +29,7 @@ const STEPS = ['Select Land', 'Mutation Type', 'New Details', 'Review'];
 
 export default function LandMutationScreen() {
     const navigation = useNavigation<LandMutationScreenProp>();
+    const { token } = useAuth();
     const [currentStep, setCurrentStep] = useState(1);
     const [submitting, setSubmitting] = useState(false);
     
@@ -68,33 +71,33 @@ export default function LandMutationScreen() {
             Alert.alert('Error', 'Please complete all required fields');
             return;
         }
-        
+        if (!token) {
+            Alert.alert('Login required', 'Please sign in to submit this service.');
+            return;
+        }
+
         setSubmitting(true);
-        
+
         try {
-            // TODO: Replace with real API call
-            // await api.post('/api/mutations', formData);
-            
-            // Simulate network delay
-            await new Promise(resolve => setTimeout(resolve, 1500));
-            
-            // Generate reference number
-            const referenceNumber = `MUT-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-            
+            const data = await submitServiceRequest(token, 'Land Mutation', {
+                plotNumber: formData.landId,
+                mutationType: formData.mutationType,
+                newDetails: formData.newDetails,
+                isLegalCertified: formData.isLegalCertified,
+            });
+            const referenceNumber = data.request?.referenceNumber;
+
             Alert.alert(
                 'Success',
                 `Mutation request submitted!\nReference: ${referenceNumber}`,
                 [
-                    { 
-                        text: 'Track Request', 
-                        onPress: () => navigation.navigate('MutationSuccess', { referenceNumber })
-                    },
-                    { text: 'Submit Another', style: 'cancel', onPress: () => setCurrentStep(1) }
+                    { text: 'Track Request', onPress: () => navigation.navigate('MyRequests') },
+                    { text: 'Submit Another', style: 'cancel', onPress: () => setCurrentStep(1) },
                 ]
             );
-        } catch (error) {
+        } catch (error: any) {
             console.error('Submit error:', error);
-            Alert.alert('Error', 'Failed to submit mutation. Please try again.');
+            Alert.alert('Error', error.message || 'Failed to submit mutation. Please try again.');
         } finally {
             setSubmitting(false);
         }

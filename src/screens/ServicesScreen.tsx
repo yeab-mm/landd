@@ -128,7 +128,13 @@ export default function ServicesScreen() {
         navigation.navigate('RegistrationRequest');
         break;
       case 'marketplace':
-        navigation.navigate('OwnershipTransfer');
+        navigation.navigate('Marketplace');
+        break;
+      case 'lookup':
+        navigation.navigate('TrackRequest');
+        break;
+      case 'stats':
+        navigation.navigate('MyRequests');
         break;
       case 'subdivision':
         navigation.navigate('LandSubdivision');

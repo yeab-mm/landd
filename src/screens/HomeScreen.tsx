@@ -2,14 +2,22 @@
 // Purpose: EXACT replica of reference HomeScreen with dynamic backend data
 
 import React, { useEffect, useState } from 'react';
-import { 
-  View, Text, ScrollView, TouchableOpacity, Alert, 
-  ActivityIndicator, RefreshControl, StatusBar 
+import {
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  Alert,
+  ActivityIndicator,
+  RefreshControl,
+  StatusBar,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api/config';
+import { isPendingStatus } from '../api/requests';
+import { useUnreadNotifications } from '../hooks/useUnreadNotifications';
 
 export default function HomeScreen({ navigation }: any) {
   const { user, token, refreshUser } = useAuth();
@@ -18,9 +26,10 @@ export default function HomeScreen({ navigation }: any) {
   const [profile, setProfile] = useState<any>(null);
   const [lands, setLands] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
-  const [stats, setStats] = useState({ totalLands: 0, pendingRequests: 0 });
+  const [stats, setStats] = useState({ totalLands: 0, pendingRequests: 0, unreadNotifications: 0 });
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const { refreshUnread } = useUnreadNotifications(0);
 
   const fetchHomeData = async () => {
     if (!token) {
@@ -31,7 +40,17 @@ export default function HomeScreen({ navigation }: any) {
       // Fetch profile
       const pRes = await fetch(`${API_URL}/user/me`, { headers: { Authorization: `Bearer ${token}` } });
       const pData = await pRes.json();
-      if (pRes.ok) setProfile(pData.user);
+      if (pRes.ok) {
+        setProfile(pData.user);
+        if (pData.user?.stats) {
+          setStats((prev) => ({
+            ...prev,
+            totalLands: pData.user.stats.totalLands ?? prev.totalLands,
+            pendingRequests: pData.user.stats.pendingRequests ?? prev.pendingRequests,
+            unreadNotifications: pData.user.stats.unreadNotifications ?? 0,
+          }));
+        }
+      }
 
       // Fetch lands
       const lRes = await fetch(`${API_URL}/lands`, { headers: { Authorization: `Bearer ${token}` } });
@@ -45,10 +64,12 @@ export default function HomeScreen({ navigation }: any) {
       if (rRes.ok) setRequests(userRequests);
 
       // Stats
-      setStats({
+      setStats((prev) => ({
+        ...prev,
         totalLands: (lData.lands || []).length,
-        pendingRequests: userRequests.filter((r: any) => r.status === 'Pending' || r.status === 'submitted').length
-      });
+        pendingRequests: userRequests.filter((r: any) => isPendingStatus(r.status)).length,
+      }));
+      refreshUnread();
     } catch (error) {
       console.error('Home data error:', error);
     } finally {
@@ -72,14 +93,14 @@ export default function HomeScreen({ navigation }: any) {
     { title: 'Ownership Verification', desc: 'Check land authenticity', icon: 'shield-checkmark', navigate: 'VerificationRequest' },
     { title: 'Registration Request', desc: 'Apply for new registration', icon: 'document-attach', navigate: 'RegistrationRequest' },
     { title: 'Land Marketplace', desc: 'Browse land listings', icon: 'business', navigate: 'Marketplace' },
-    { title: 'Information Lookup', desc: 'Search by plot/location', icon: 'search', navigate: null },
+    { title: 'Information Lookup', desc: 'Search by plot/location', icon: 'search', navigate: 'TrackRequest' },
   ];
 
   // Row 2 - Additional Services
   const servicesRow2 = [
     { title: 'Ownership Transfer', desc: 'Request land transfer', icon: 'swap-horizontal', navigate: 'OwnershipTransfer' },
-    { title: 'Public Statistics', desc: 'Explore land insights', icon: 'stats-chart', navigate: null },
-    { title: 'Download Certificate', desc: 'Get ownership docs', icon: 'download', navigate: null },
+    { title: 'Public Statistics', desc: 'Explore land insights', icon: 'stats-chart', navigate: 'MyRequests' },
+    { title: 'My Documents', desc: 'View uploaded documents', icon: 'folder', navigate: 'MyDocuments' },
     { title: 'Track Request', desc: 'Monitor application', icon: 'time', navigate: 'MyRequests' },
   ];
 
@@ -122,6 +143,25 @@ export default function HomeScreen({ navigation }: any) {
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} color="#125f43" />}
       >
+        {stats.unreadNotifications > 0 && (
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Notifications')}
+            className="mt-4 bg-green-50 border border-green-200 rounded-2xl p-4 flex-row items-center"
+            activeOpacity={0.85}
+          >
+            <View className="bg-green-100 rounded-full p-2 mr-3">
+              <Ionicons name="notifications" size={22} color="#125f43" />
+            </View>
+            <View className="flex-1">
+              <Text className="text-[#125f43] font-bold text-sm">You have new updates</Text>
+              <Text className="text-gray-600 text-xs mt-0.5">
+                {stats.unreadNotifications} unread — tap to see approvals and status changes
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#125f43" />
+          </TouchableOpacity>
+        )}
+
         {/* Available Services - Row 1 */}
         <View className="py-6">
           <Text className="text-gray-800 text-lg font-bold mb-4">Available Services</Text>
@@ -129,7 +169,10 @@ export default function HomeScreen({ navigation }: any) {
             {servicesRow1.map((action, index) => (
               <TouchableOpacity
                 key={index}
-                onPress={() => action.navigate && navigation.navigate(action.navigate)}
+                onPress={() => {
+                  if (action.navigate) navigation.navigate(action.navigate);
+                  else Alert.alert(action.title, 'This service is coming soon.');
+                }}
                 className="bg-white rounded-2xl p-4 w-[48%] mb-4 shadow-sm border border-gray-100"
                 activeOpacity={0.8}
               >
@@ -150,7 +193,10 @@ export default function HomeScreen({ navigation }: any) {
             {servicesRow2.map((action, index) => (
               <TouchableOpacity
                 key={index}
-                onPress={() => action.navigate && navigation.navigate(action.navigate)}
+                onPress={() => {
+                  if (action.navigate) navigation.navigate(action.navigate);
+                  else Alert.alert(action.title, 'This service is coming soon.');
+                }}
                 className="bg-white rounded-2xl p-4 w-[48%] mb-4 shadow-sm border border-gray-100"
                 activeOpacity={0.8}
               >

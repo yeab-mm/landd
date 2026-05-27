@@ -1,11 +1,12 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, TouchableOpacity, StatusBar, ScrollView, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { API_URL } from '../api/config';
+import { parseReferenceFromMessage } from '../hooks/useUnreadNotifications';
 
 // ✅ FIXED: Proper navigation types
 type RootStackParamList = {
@@ -25,6 +26,7 @@ type Notification = {
     type: 'success' | 'info' | 'warning' | 'error';
     read: boolean;
     referenceNumber?: string;
+    isApproval?: boolean;
 };
 
 const formatTime = (dateStr: string) => {
@@ -65,7 +67,8 @@ export default function NotificationsScreen() {
                     time: formatTime(n.createdAt),
                     type: n.type || 'info',
                     read: n.isRead,
-                    referenceNumber: n.message.match(/REG-\d+-\w+|VER-\d+-\w+/)?.[0] || undefined
+                    referenceNumber: parseReferenceFromMessage(n.message),
+                    isApproval: (n.title || '').toLowerCase().includes('approved'),
                 }));
                 setNotifications(mapped);
             }
@@ -79,6 +82,12 @@ export default function NotificationsScreen() {
     useEffect(() => {
         fetchNotifications();
     }, [token]);
+
+    useFocusEffect(
+        useCallback(() => {
+            fetchNotifications();
+        }, [token])
+    );
 
     // ✅ FIXED: Proper typing for icon name return
     const getNotificationIcon = (type: Notification['type']): keyof typeof Ionicons.glyphMap => {
@@ -136,6 +145,10 @@ export default function NotificationsScreen() {
             key={notification.id}
             onPress={() => {
                 markAsRead(notification.id);
+                if (notification.isApproval || notification.type === 'success') {
+                    navigation.navigate('MyLands');
+                    return;
+                }
                 if (notification.referenceNumber) {
                     navigation.navigate('RequestDetail', { referenceNumber: notification.referenceNumber });
                 }
@@ -173,7 +186,7 @@ export default function NotificationsScreen() {
 
                     <View className="flex-row items-center justify-between">
                         <Text className="text-gray-400 text-xs">{notification.time}</Text>
-                        {notification.referenceNumber && (
+                        {(notification.isApproval || notification.referenceNumber) && (
                             <View className={`px-2 py-1 rounded-full ${getBadgeColor(notification.type)}`}>
                                 <Text className={`text-xs font-medium ${
                                     notification.type === 'success' ? 'text-green-700' :
@@ -181,7 +194,7 @@ export default function NotificationsScreen() {
                                     notification.type === 'error' ? 'text-red-700' :
                                     'text-blue-700'
                                 }`}>
-                                    View Details
+                                    {notification.isApproval ? 'View My Lands' : 'View Details'}
                                 </Text>
                             </View>
                         )}

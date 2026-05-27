@@ -5,6 +5,25 @@ import { Request, Response } from 'express';
 import prisma from '../config/database';
 import { parseFormData, serializeFormData } from '../utils/formData';
 import { REQUIRED_DOCS_BY_TYPE } from '../utils/documentRequirements';
+import { fulfillApprovedRequest } from '../utils/requestFulfillment';
+import { notifyUser } from '../utils/notifyUser';
+import { notifyRole } from '../utils/notifyRole';
+
+const normalizeRole = (role: string) => (role || '').toLowerCase();
+
+const statusKey = (status: string) => (status || '').toLowerCase().trim();
+
+function adminClearedForOfficer(formData: Record<string, unknown>): boolean {
+    const adminReview = formData.adminReview as { decision?: string } | undefined;
+    return (
+        adminReview?.decision === 'approved' ||
+        Boolean(formData.forwardedByAdminId)
+    );
+}
+
+// Admin must review/validate docs first, then forward to officer.
+const ADMIN_FORWARD_FROM = ['document validation'];
+const ADMIN_FORWARD_FROM_TRIAGE = ['submitted', 'pending', 'under review'];
 
 // Unified Submit Request Endpoint
 export const createRequest = async (req: Request, res: Response) => {
@@ -49,12 +68,19 @@ export const createRequest = async (req: Request, res: Response) => {
         const newRequest = await prisma.request.create({
             data: {
                 type,
-                status: 'Under Review',
+                status: 'Submitted',
                 referenceNumber,
                 formData: serializeFormData(formData),
                 userId,
             }
         });
+
+        // Staff notifications (Admin & Officer)
+        const staffMsg = `New ${type} request submitted (${referenceNumber}). Plot: ${plotNumber || 'N/A'}.`;
+        await Promise.all([
+            notifyRole('Admin',   { title: 'New request submitted', message: staffMsg, type: 'info' }),
+            notifyRole('Officer', { title: 'New request submitted', message: staffMsg, type: 'info' }),
+        ]);
 
         return res.status(201).json({ request: newRequest });
     } catch (error) {
@@ -97,6 +123,10 @@ export const getRequests = async (req: Request, res: Response) => {
                     landSize: formDataObj.landSize || 0,
                     urgency: formDataObj.urgency || 'medium',
                     additionalNotes: formDataObj.additionalNotes || formDataObj.purpose || 'N/A',
+                    documents: formDataObj.documents || {},
+                    adminReview: formDataObj.adminReview || null,
+                    officerReview: formDataObj.officerReview || null,
+                    docAuthenticity: formDataObj.docAuthenticity || null,
                 };
             });
         } else {
@@ -145,27 +175,31 @@ export const getRequestDetail = async (req: Request, res: Response) => {
     }
 };
 
-// Update request status (Admin/Officer only)
+// Update request status (Admin/Officer can validate, forward, approve, reject)
 export const updateRequestStatus = async (req: Request, res: Response) => {
     try {
         const userId = (req as any).user?.userId;
         const role = (req as any).user?.role;
-        
+
         if (!userId) {
             return res.status(401).json({ error: 'Unauthorized' });
         }
-        
-        if (role !== 'Officer' && role !== 'Admin' && role !== 'officer' && role !== 'admin') {
+
+        const roleNorm = normalizeRole(role);
+        const isAdmin = roleNorm === 'admin';
+        const isOfficer = roleNorm === 'officer';
+
+        if (!isAdmin && !isOfficer) {
             return res.status(403).json({ error: 'Forbidden: Officer/Admin access required' });
         }
-        
+
         const id = String(req.params.id || '');
         const { status, docValidation } = req.body;
-        
+
         if (!status) {
             return res.status(400).json({ error: 'Status is required' });
         }
-        
+
         const currentRequest = await prisma.request.findUnique({
             where: { id },
         });
@@ -175,8 +209,65 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
 
         const existingFormData = parseFormData(currentRequest.formData);
         const requestedStatus = String(status);
-        const normalizedStatus = requestedStatus.toLowerCase();
+        const normalizedStatus = statusKey(requestedStatus);
+        const currentStatusKey = statusKey(currentRequest.status);
         const requiredDocs = REQUIRED_DOCS_BY_TYPE[currentRequest.type] || ['Supporting Documents'];
+
+        // Admin: validate documents, forward to officer, or reject (no final approval).
+        if (isAdmin) {
+            if (normalizedStatus === 'approved') {
+                return res.status(400).json({
+                    error: 'Admins forward validated requests to officers. Use "Assigned to Officer" after document review.',
+                });
+            }
+            if (normalizedStatus === 'assigned to officer') {
+                const hasDocsPayload = Boolean(docValidation && (docValidation as any).docs);
+                const canForwardDirectly =
+                    hasDocsPayload && ADMIN_FORWARD_FROM_TRIAGE.includes(currentStatusKey);
+
+                if (!ADMIN_FORWARD_FROM.includes(currentStatusKey) && !canForwardDirectly) {
+                    return res.status(400).json({
+                        error: `Cannot forward request in status "${currentRequest.status}".`,
+                    });
+                }
+
+                // Enforce: admin must mark ALL required docs authentic before forwarding
+                const docsMapToCheck = (docValidation?.docs || existingFormData?.docAuthenticity?.docs || {}) as Record<
+                    string,
+                    boolean
+                >;
+                const missingValidation = requiredDocs.filter((doc) => docsMapToCheck[doc] !== true);
+                if (missingValidation.length > 0) {
+                    return res.status(400).json({
+                        error: `Cannot forward. These documents are not validated as authentic: ${missingValidation.join(', ')}`,
+                    });
+                }
+            } else if (
+                normalizedStatus !== 'under review' &&
+                normalizedStatus !== 'document validation' &&
+                normalizedStatus !== 'rejected'
+            ) {
+                return res.status(403).json({
+                    error: 'Admins may document-validate, reject, or forward requests to officers.',
+                });
+            }
+        }
+
+        // Officers review, validate documents, approve or reject
+        if (isOfficer) {
+            if (normalizedStatus === 'assigned to officer') {
+                return res.status(403).json({
+                    error: 'Only admins can forward requests to the officer queue.',
+                });
+            }
+            if (normalizedStatus === 'approved') {
+                if (!adminClearedForOfficer(existingFormData)) {
+                    return res.status(400).json({
+                        error: 'Admin must approve documents and forward this listing before it can be published.',
+                    });
+                }
+            }
+        }
 
         const needsDocPayload =
             normalizedStatus === 'approved' ||
@@ -211,24 +302,69 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
             }
         }
 
-        const displayStatus =
-            normalizedStatus === 'document validation'
-                ? 'Document Validation'
-                : requestedStatus;
+        let displayStatus = requestedStatus;
+        if (normalizedStatus === 'document validation') {
+            displayStatus = 'Document Validation';
+        } else if (normalizedStatus === 'assigned to officer') {
+            displayStatus = 'Assigned to Officer';
+        } else if (normalizedStatus === 'approved') {
+            displayStatus = 'Approved';
+        } else if (normalizedStatus === 'rejected') {
+            displayStatus = 'Rejected';
+        } else if (normalizedStatus === 'under review') {
+            displayStatus = 'Under Review';
+        }
 
-        const nextFormData = {
+        const nextFormData: Record<string, unknown> = {
             ...existingFormData,
             docAuthenticity: docValidation
                 ? {
-                    ...docValidation,
-                    requiredDocs,
-                    validatedByUserId: userId,
-                    validatedAt: new Date().toISOString(),
-                }
+                      ...docValidation,
+                      requiredDocs,
+                      validatedByUserId: userId,
+                      validatedAt: new Date().toISOString(),
+                      validatedByRole: roleNorm,
+                  }
                 : existingFormData.docAuthenticity,
         };
 
-        // Update request status
+        if (isAdmin && docValidation && (normalizedStatus === 'assigned to officer' || normalizedStatus === 'rejected')) {
+            const docsMapAdmin = (docValidation.docs || {}) as Record<string, boolean>;
+            const allAuthentic = requiredDocs.every((doc) => docsMapAdmin[doc] === true);
+            const anyRejected = requiredDocs.some((doc) => docsMapAdmin[doc] === false);
+            let decision: 'approved' | 'rejected' = 'approved';
+            if (normalizedStatus === 'rejected' || anyRejected) {
+                decision = 'rejected';
+            } else if (!allAuthentic) {
+                decision = 'rejected';
+            }
+            nextFormData.adminReview = {
+                decision,
+                docs: docsMapAdmin,
+                notes: docValidation.notes || '',
+                reviewedAt: new Date().toISOString(),
+                reviewedByUserId: userId,
+                reviewedByRole: 'admin',
+            };
+        }
+
+        if (normalizedStatus === 'assigned to officer' && isAdmin) {
+            nextFormData.forwardedByAdminId = userId;
+            nextFormData.forwardedAt = new Date().toISOString();
+        }
+
+        if (isOfficer && docValidation && (normalizedStatus === 'approved' || normalizedStatus === 'rejected')) {
+            const docsMapOfficer = (docValidation.docs || {}) as Record<string, boolean>;
+            nextFormData.officerReview = {
+                decision: normalizedStatus === 'approved' ? 'approved' : 'rejected',
+                docs: docsMapOfficer,
+                notes: docValidation.notes || '',
+                reviewedAt: new Date().toISOString(),
+                reviewedByUserId: userId,
+                reviewedByRole: 'officer',
+            };
+        }
+
         const updatedRequest = await prisma.request.update({
             where: { id },
             data: {
@@ -236,40 +372,66 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
                 formData: serializeFormData(nextFormData),
             },
         });
-        
-        // If approved and request has land details, we should create or verify the Land in database!
-        if (normalizedStatus === 'approved') {
-            const formData = parseFormData(updatedRequest.formData);
-            if (formData && formData.plotNumber) {
-                // Check if land already exists
-                const existingLand = await prisma.land.findUnique({
-                    where: { plotNumber: formData.plotNumber }
-                });
-                
-                if (existingLand) {
-                    await prisma.land.update({
-                        where: { id: existingLand.id },
-                        data: { verified: true }
-                    });
-                } else {
-                    // Create new land record if it is a new registration
-                    await prisma.land.create({
-                        data: {
-                            plotNumber: formData.plotNumber,
-                            region: formData.region || 'Addis Ababa',
-                            zone: formData.zone || '',
-                            wereda: formData.wereda || formData.woreda || '',
-                            kebele: formData.kebele || '',
-                            landSize: typeof formData.landSize === 'string' ? parseFloat(formData.landSize) : (formData.landSize || 0.0),
-                            landUseType: formData.landUseType || 'Residential',
-                            ownerId: updatedRequest.userId,
-                            verified: true
-                        }
-                    });
-                }
-            }
+
+        if (normalizedStatus === 'assigned to officer' && isAdmin) {
+            await notifyRole('Officer', {
+                title: 'Request forwarded to officer queue',
+                message: `A request was forwarded for officer review (${updatedRequest.referenceNumber}).`,
+                type: 'info',
+            });
         }
-        
+
+        if (normalizedStatus === 'rejected' && isAdmin) {
+            const ref = currentRequest.referenceNumber || 'your request';
+            const notes =
+                typeof docValidation?.notes === 'string' && docValidation.notes.trim()
+                    ? ` Reason: ${docValidation.notes.trim()}`
+                    : '';
+            await notifyUser(currentRequest.userId, {
+                title: 'Listing request rejected',
+                message: `Your ${currentRequest.type} (${ref}) was rejected by admin.${notes}`,
+                type: 'error',
+            });
+            await notifyRole('Officer', {
+                title: 'Request rejected by admin',
+                message: `Admin rejected ${ref}. Officer review not required.`,
+                type: 'info',
+            });
+        }
+
+        if (normalizedStatus === 'approved' && isOfficer) {
+            const land = await fulfillApprovedRequest({
+                id: updatedRequest.id,
+                userId: updatedRequest.userId,
+                type: updatedRequest.type,
+                formData: updatedRequest.formData,
+                referenceNumber: updatedRequest.referenceNumber,
+            });
+
+            const isMarketplace = updatedRequest.type === 'Marketplace Listing';
+            return res.json({
+                request: updatedRequest,
+                published: isMarketplace,
+                message: isMarketplace
+                    ? 'Listing published successfully. It is now visible in the marketplace.'
+                    : 'Request approved successfully.',
+                land,
+            });
+        }
+
+        if (normalizedStatus === 'rejected' && isOfficer) {
+            const ref = currentRequest.referenceNumber || 'your request';
+            const notes =
+                typeof docValidation?.notes === 'string' && docValidation.notes.trim()
+                    ? ` Reason: ${docValidation.notes.trim()}`
+                    : '';
+            await notifyUser(currentRequest.userId, {
+                title: 'Request rejected',
+                message: `Your ${currentRequest.type} (${ref}) was not approved.${notes}`,
+                type: 'error',
+            });
+        }
+
         return res.json({ request: updatedRequest });
     } catch (error) {
         console.error('Update request status error:', error);

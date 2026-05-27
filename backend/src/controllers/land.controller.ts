@@ -111,6 +111,12 @@ export const createLand = async (req: Request, res: Response): Promise<Response>
       return res.status(400).json({ error: 'Plot number, region, and land size are required' });
     }
 
+    if (req.body.title || req.body.price || req.body.listingForSale) {
+      return res.status(400).json({
+        error: 'Marketplace listings must be submitted via POST /api/marketplace/listings for admin and officer approval.',
+      });
+    }
+
     const existing = await prisma.land.findFirst({
       where: { plotNumber: plotNumber },
     });
