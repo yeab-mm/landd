@@ -228,48 +228,98 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
                 : existingFormData.docAuthenticity,
         };
 
-        // Update request status
-        const updatedRequest = await prisma.request.update({
-            where: { id },
-            data: {
-                status: displayStatus,
-                formData: serializeFormData(nextFormData),
-            },
-        });
-        
-        // If approved and request has land details, we should create or verify the Land in database!
-        if (normalizedStatus === 'approved') {
-            const formData = parseFormData(updatedRequest.formData);
-            if (formData && formData.plotNumber) {
-                // Check if land already exists
-                const existingLand = await prisma.land.findUnique({
-                    where: { plotNumber: formData.plotNumber }
-                });
-                
-                if (existingLand) {
-                    await prisma.land.update({
-                        where: { id: existingLand.id },
-                        data: { verified: true }
-                    });
-                } else {
-                    // Create new land record if it is a new registration
-                    await prisma.land.create({
-                        data: {
-                            plotNumber: formData.plotNumber,
-                            region: formData.region || 'Addis Ababa',
-                            zone: formData.zone || '',
-                            wereda: formData.wereda || formData.woreda || '',
-                            kebele: formData.kebele || '',
-                            landSize: typeof formData.landSize === 'string' ? parseFloat(formData.landSize) : (formData.landSize || 0.0),
-                            landUseType: formData.landUseType || 'Residential',
-                            ownerId: updatedRequest.userId,
-                            verified: true
-                        }
-                    });
-                }
+        const isApproved = normalizedStatus === 'approved';
+
+        const updatedRequest = await prisma.$transaction(async (tx) => {
+            // Update request status + persist docAuthenticity payload
+            const reqUpdated = await tx.request.update({
+                where: { id },
+                data: {
+                    status: displayStatus,
+                    formData: serializeFormData(nextFormData),
+                },
+            });
+
+            if (!isApproved) {
+                return reqUpdated;
             }
-        }
-        
+
+            const formData = parseFormData(reqUpdated.formData);
+            const plotNumber = String((formData as any)?.plotNumber || '').trim();
+            if (!plotNumber) {
+                // Approval without plotNumber: nothing to link/create.
+                return reqUpdated;
+            }
+
+            const requestType = String(reqUpdated.type || '');
+            const isTransfer = requestType === 'Ownership Transfer';
+
+            // Determine intended owner for the land after approval
+            let ownerId = reqUpdated.userId;
+            if (isTransfer) {
+                const meta = (formData as any)?.metadata || {};
+                const newOwner = meta?.newOwner || {};
+                const newOwnerNationalId = String(newOwner?.nationalId || '').replace(/\s/g, '');
+                const newOwnerEmail = String(newOwner?.email || '').toLowerCase().trim();
+                const newOwnerPhone = String(newOwner?.phone || '').replace(/\s/g, '');
+
+                const target = await tx.user.findFirst({
+                    where: {
+                        OR: [
+                            ...(newOwnerNationalId ? [{ faydaId: newOwnerNationalId }] : []),
+                            ...(newOwnerEmail ? [{ email: newOwnerEmail }] : []),
+                            ...(newOwnerPhone ? [{ phone: newOwnerPhone }] : []),
+                        ],
+                    },
+                    select: { id: true },
+                });
+                if (target?.id) ownerId = target.id;
+            }
+
+            // Upsert land by plotNumber and mark verified
+            const existingLand = await tx.land.findUnique({ where: { plotNumber } });
+            const land =
+                existingLand
+                    ? await tx.land.update({
+                        where: { id: existingLand.id },
+                        data: {
+                            ownerId,
+                            verified: true,
+                            region: (formData as any).region || existingLand.region,
+                            zone: (formData as any).zone || existingLand.zone,
+                            wereda: (formData as any).wereda || (formData as any).woreda || existingLand.wereda,
+                            kebele: (formData as any).kebele || existingLand.kebele,
+                            landUseType: (formData as any).landUseType || existingLand.landUseType,
+                            landSize:
+                                typeof (formData as any).landSize === 'string'
+                                    ? parseFloat((formData as any).landSize || String(existingLand.landSize))
+                                    : (formData as any).landSize ?? existingLand.landSize,
+                        },
+                    })
+                    : await tx.land.create({
+                        data: {
+                            plotNumber,
+                            region: (formData as any).region || 'Addis Ababa',
+                            zone: (formData as any).zone || '',
+                            wereda: (formData as any).wereda || (formData as any).woreda || '',
+                            kebele: (formData as any).kebele || '',
+                            landSize:
+                                typeof (formData as any).landSize === 'string'
+                                    ? parseFloat((formData as any).landSize || '0')
+                                    : (formData as any).landSize || 0.0,
+                            landUseType: (formData as any).landUseType || 'Residential',
+                            ownerId,
+                            verified: true,
+                        },
+                    });
+
+            // Link the request to the land so staff/citizen UIs can correlate.
+            return await tx.request.update({
+                where: { id: reqUpdated.id },
+                data: { landId: land.id },
+            });
+        });
+
         return res.json({ request: updatedRequest });
     } catch (error) {
         console.error('Update request status error:', error);

@@ -93,8 +93,17 @@ export const getLand = async (req: Request, res: Response): Promise<Response> =>
 export const createLand = async (req: Request, res: Response): Promise<Response> => {
   try {
     const ownerId = (req as any).user?.userId;
+    const role = (req as any).user?.role;
     if (!ownerId) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+    // Citizens should not directly register land records.
+    // Lands are created/verified as a result of staff approvals on requests.
+    const r = String(role || '').toLowerCase();
+    if (r !== 'admin' && r !== 'officer') {
+      return res.status(403).json({
+        error: 'Land registration must be submitted as a request and approved by staff.',
+      });
     }
 
     const {
@@ -130,7 +139,7 @@ export const createLand = async (req: Request, res: Response): Promise<Response>
         kebele: kebele,
         landSize: parseFloat(landSize),
         landUseType: landUseType,
-        verified: false,
+        verified: true,
       },
       select: {
         id: true,
