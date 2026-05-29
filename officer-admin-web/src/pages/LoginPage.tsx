@@ -30,20 +30,23 @@ export default function LoginPage() {
 
   return (
     <div className="login-page">
-      <div className="login-card">
+      <div className="ambient-light ambient-light--1"></div>
+      <div className="ambient-light ambient-light--2"></div>
+      
+      <div className="login-card animate-fade">
         <div className="login-card__hero">
           <span className="login-card__logo">DL</span>
-          <h1>Staff Portal</h1>
+          <h1>FEDERAL COMMAND</h1>
           <p>
-            Digital Land Citizen Portal — sign in as a land officer or system administrator to
-            review applications and monitor the registry.
+            Secure access for Federal Land Officers and System Administrators. Authenticate to manage the national land registry.
           </p>
         </div>
         <form className="login-form" onSubmit={onSubmit}>
           <label className="field">
-            <span>Email, phone, or Fayda ID</span>
+            <span>Authentication Identifier</span>
             <input
               type="text"
+              placeholder="Email or Fayda ID"
               autoComplete="username"
               value={identifier}
               onChange={(e) => setIdentifier(e.target.value)}
@@ -51,9 +54,10 @@ export default function LoginPage() {
             />
           </label>
           <label className="field">
-            <span>Password</span>
+            <span>Secure Password</span>
             <input
               type="password"
+              placeholder="••••••••"
               autoComplete="current-password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
@@ -61,13 +65,12 @@ export default function LoginPage() {
             />
           </label>
           {error ? <p className="form-error">{error}</p> : null}
-          <button type="submit" className="btn btn--primary btn--block" disabled={loading}>
-            {loading ? 'Signing in…' : 'Sign in'}
+          <button type="submit" className="btn btn--primary" style={{width: '100%', padding: '1.2rem'}} disabled={loading}>
+            {loading ? 'ESTABLISHING SECURE CONNECTION...' : 'AUTHORIZE ACCESS'}
           </button>
         </form>
         <p className="login-card__footnote">
-          Citizen accounts cannot access this portal. Use an Officer or Admin account from your
-          organization.
+          Restricted access. Unauthorized attempts are logged.
         </p>
       </div>
     </div>

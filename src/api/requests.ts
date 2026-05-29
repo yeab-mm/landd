@@ -14,7 +14,10 @@ export async function submitServiceRequest(
   token: string,
   type: ServiceRequestType,
   body: Record<string, unknown>
-): Promise<{ request: { id: string; referenceNumber: string; type: string; status: string } }> {
+): Promise<{
+  message?: string;
+  request: { id: string; referenceNumber: string; type: string; status: string };
+}> {
   const res = await fetch(`${API_URL}/requests`, {
     method: 'POST',
     headers: {

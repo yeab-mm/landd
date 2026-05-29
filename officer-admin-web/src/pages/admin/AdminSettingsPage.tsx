@@ -17,7 +17,7 @@ export default function AdminSettingsPage() {
   return (
     <PortalLayout
       title="System Configuration"
-      subtitle="Global modules, security policies, and maintenance tools (UC-27)."
+      subtitle="Global modules, security policies, and maintenance tools."
       nav={adminNav}
     >
       {saved ? <p className="banner banner--success">Configuration saved locally (demo). Wire to backend when config API is available.</p> : null}

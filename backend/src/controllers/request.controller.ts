@@ -48,6 +48,23 @@ export const createRequest = async (req: Request, res: Response) => {
             return res.status(400).json({ error: 'Request type is required' });
         }
 
+        const plot = String(plotNumber || req.body.plotNumber || '').trim();
+        if (!plot) {
+            return res.status(400).json({ error: 'Plot number is required' });
+        }
+
+        const requiredDocs = REQUIRED_DOCS_BY_TYPE[type] || [];
+        const documents = (req.body.documents || {}) as Record<string, string>;
+        const missingDocs = requiredDocs.filter((doc) => {
+            const v = documents[doc];
+            return typeof v !== 'string' || !v.trim();
+        });
+        if (requiredDocs.length > 0 && missingDocs.length > 0) {
+            return res.status(400).json({
+                error: `Missing required documents: ${missingDocs.join(', ')}`,
+            });
+        }
+
         // Generate descriptive reference number
         let prefix = 'REQ';
         if (type === 'Land Registration' || type === 'Registration Request') {
@@ -56,13 +73,24 @@ export const createRequest = async (req: Request, res: Response) => {
             prefix = 'VER';
         } else if (type === 'Ownership Transfer') {
             prefix = 'TRF';
+        } else if (type === 'Land Subdivision') {
+            prefix = 'SUB';
+        } else if (type === 'Land Mutation') {
+            prefix = 'MUT';
+        } else if (type === 'Zoning Change') {
+            prefix = 'ZON';
         }
         const referenceNumber = `${prefix}-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
 
-        // Build robust formData JSON object containing all details
         const formData = {
             ...req.body,
-            landSize: typeof landSize === 'string' ? parseFloat(landSize || '0') : (landSize || 0)
+            plotNumber: plot,
+            region: region || req.body.region || 'Amhara',
+            zone: zone || req.body.zone || '',
+            wereda: wereda || req.body.wereda || '',
+            kebele: kebele || req.body.kebele || '',
+            landSize: typeof landSize === 'string' ? parseFloat(landSize || '0') : (landSize || 0),
+            documents,
         };
 
         const newRequest = await prisma.request.create({
@@ -75,14 +103,17 @@ export const createRequest = async (req: Request, res: Response) => {
             }
         });
 
-        // Staff notifications (Admin & Officer)
-        const staffMsg = `New ${type} request submitted (${referenceNumber}). Plot: ${plotNumber || 'N/A'}.`;
+        const staffMsg = `New ${type} request (${referenceNumber}) for plot ${plot}.`;
         await Promise.all([
-            notifyRole('Admin',   { title: 'New request submitted', message: staffMsg, type: 'info' }),
+            notifyRole('Admin', { title: 'New request submitted', message: staffMsg, type: 'info' }),
             notifyRole('Officer', { title: 'New request submitted', message: staffMsg, type: 'info' }),
         ]);
 
-        return res.status(201).json({ request: newRequest });
+        return res.status(201).json({
+            message:
+                'Request submitted for review. Admin will validate documents and forward to an officer.',
+            request: newRequest,
+        });
     } catch (error) {
         console.error('Create request error:', error);
         return res.status(500).json({ error: 'Internal server error' });
@@ -221,25 +252,42 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
                 });
             }
             if (normalizedStatus === 'assigned to officer') {
-                const hasDocsPayload = Boolean(docValidation && (docValidation as any).docs);
-                const canForwardDirectly =
-                    hasDocsPayload && ADMIN_FORWARD_FROM_TRIAGE.includes(currentStatusKey);
+                const adminReview = existingFormData.adminReview as { decision?: string } | undefined;
+                const fromTriage = ADMIN_FORWARD_FROM_TRIAGE.includes(currentStatusKey);
+                const fromDocApproval =
+                    currentStatusKey === 'document validation' && adminReview?.decision === 'approved';
 
-                if (!ADMIN_FORWARD_FROM.includes(currentStatusKey) && !canForwardDirectly) {
+                if (!fromTriage && !fromDocApproval) {
                     return res.status(400).json({
-                        error: `Cannot forward request in status "${currentRequest.status}".`,
+                        error:
+                            'Approve all required documents first, then forward to an officer.',
                     });
                 }
 
-                // Enforce: admin must mark ALL required docs authentic before forwarding
-                const docsMapToCheck = (docValidation?.docs || existingFormData?.docAuthenticity?.docs || {}) as Record<
-                    string,
-                    boolean
-                >;
+                const docsMapToCheck = (docValidation?.docs ||
+                    existingFormData?.docAuthenticity?.docs ||
+                    {}) as Record<string, boolean>;
                 const missingValidation = requiredDocs.filter((doc) => docsMapToCheck[doc] !== true);
                 if (missingValidation.length > 0) {
                     return res.status(400).json({
                         error: `Cannot forward. These documents are not validated as authentic: ${missingValidation.join(', ')}`,
+                    });
+                }
+            } else if (normalizedStatus === 'document validation') {
+                const docsMapApprove = (docValidation?.docs || {}) as Record<string, boolean>;
+                const missingApproval = requiredDocs.filter((doc) => docsMapApprove[doc] !== true);
+                if (missingApproval.length > 0) {
+                    return res.status(400).json({
+                        error: `Cannot approve documents. Mark each required file as authentic: ${missingApproval.join(', ')}`,
+                    });
+                }
+                const missingFiles = requiredDocs.filter((doc) => {
+                    const uploaded = (existingFormData.documents as Record<string, string> | undefined)?.[doc];
+                    return !uploaded;
+                });
+                if (missingFiles.length > 0) {
+                    return res.status(400).json({
+                        error: `Cannot approve — missing uploads: ${missingFiles.join(', ')}`,
                     });
                 }
             } else if (
@@ -291,7 +339,7 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
             }
         }
 
-        if (normalizedStatus === 'document validation') {
+        if (normalizedStatus === 'document validation' && !isAdmin) {
             const hasAnyReview = requiredDocs.some(
                 (doc) => docsMap[doc] === true || docsMap[doc] === false
             );
@@ -328,7 +376,13 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
                 : existingFormData.docAuthenticity,
         };
 
-        if (isAdmin && docValidation && (normalizedStatus === 'assigned to officer' || normalizedStatus === 'rejected')) {
+        if (
+            isAdmin &&
+            docValidation &&
+            (normalizedStatus === 'assigned to officer' ||
+                normalizedStatus === 'rejected' ||
+                normalizedStatus === 'document validation')
+        ) {
             const docsMapAdmin = (docValidation.docs || {}) as Record<string, boolean>;
             const allAuthentic = requiredDocs.every((doc) => docsMapAdmin[doc] === true);
             const anyRejected = requiredDocs.some((doc) => docsMapAdmin[doc] === false);

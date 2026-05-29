@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,22 +10,28 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
+    TouchableWithoutFeedback,
     Keyboard,
     Modal,
-    TouchableWithoutFeedback
+    Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api/config';
+import { submitServiceRequest } from '../api/requests';
+import { buildVerificationPayload } from '../utils/serviceRequestPayload';
+import { missingRequiredDocs } from '../utils/documentUpload';
+import { getRequiredDocs } from '../constants/documentRequirements';
+import { SubmitSuccessView } from '../components/forms/SubmitSuccessView';
 
 type RootStackParamList = {
     VerificationRequest: undefined;
     TrackRequest: { referenceNumber: string };
+    RequestDetail: { referenceNumber: string };
     MainApp: undefined;
 };
 
@@ -139,10 +145,10 @@ const DropdownField = ({
 
 export default function VerificationRequestScreen() {
     const navigation = useNavigation<VerificationRequestScreenProp>();
-    const { user, token, refreshUser } = useAuth();
+    const { token } = useAuth();
     const scrollViewRef = useRef<ScrollView>(null);
     const [currentSection, setCurrentSection] = useState(0);
-    const [profile, setProfile] = useState<any>(null);
+    const [submittedRequest, setSubmittedRequest] = useState<{ referenceNumber: string } | null>(null);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -154,21 +160,21 @@ export default function VerificationRequestScreen() {
             wereda: '',
             kebele: ''
         },
-        coordinates: { latitude: null as any, longitude: null as any },
+        coordinates: { latitude: null, longitude: null },
         landSize: '',
         landSizeUnit: 'm²',
         landUseType: '',
 
         // Section 2: Owner Information
-        ownerName: '',
-        ownerNationalId: '',
+        ownerName: 'Abebe Gizaw',
+        ownerNationalId: '1234 5678 9012 3456',
         relationship: 'Owner',
 
         // Section 3: Documents
         documents: {
-            titleDeed: null as any,
-            surveyMap: null as any,
-            ownerIdCopy: null as any,
+            titleDeed: null,
+            surveyMap: null,
+            ownerIdCopy: null,
         },
 
         // Section 4: Purpose
@@ -182,56 +188,8 @@ export default function VerificationRequestScreen() {
         acceptDeclaration2: false,
     });
 
-    const applyOwnerFromAccount = (account: { fullName?: string; faydaId?: string } | null) => {
-        if (!account) return;
-        setFormData((prev) => ({
-            ...prev,
-            ownerName: account.fullName?.trim() || prev.ownerName,
-            ownerNationalId: account.faydaId?.trim() || prev.ownerNationalId,
-            relationship: prev.relationship || 'Owner',
-        }));
-    };
-
-    const resolveOwnerFields = () => {
-        const account = profile || user;
-        return {
-            ownerName: (formData.ownerName || account?.fullName || '').trim(),
-            ownerNationalId: (formData.ownerNationalId || account?.faydaId || '').trim(),
-            relationship: formData.relationship || 'Owner',
-        };
-    };
-
-    const loadAccountProfile = async () => {
-        if (!token) return;
-        try {
-            const res = await fetch(`${API_URL}/user/me`, {
-                headers: { Authorization: `Bearer ${token}` },
-            });
-            const data = await res.json();
-            if (res.ok && data.user) {
-                setProfile(data.user);
-                applyOwnerFromAccount(data.user);
-            }
-        } catch (error) {
-            console.error('Load profile for verification:', error);
-        }
-    };
-
-    useEffect(() => {
-        applyOwnerFromAccount(user);
-    }, [user]);
-
-    useFocusEffect(
-        React.useCallback(() => {
-            refreshUser();
-            loadAccountProfile();
-        }, [token])
-    );
-
     const [loading, setLoading] = useState(false);
     const [locationLoading, setLocationLoading] = useState(false);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
-    const [successRefNum, setSuccessRefNum] = useState('');
 
     // Section Titles
     const sections = [
@@ -242,6 +200,8 @@ export default function VerificationRequestScreen() {
         { title: 'Declaration', icon: 'shield-checkmark', required: true },
     ];
 
+    // CARD WIDTH - Using dynamic device width
+    const CARD_WIDTH = Dimensions.get('window').width;
 
     // ✅ Get available zones based on selected region
     const getAvailableZones = () => {
@@ -313,32 +273,20 @@ export default function VerificationRequestScreen() {
         return true;
     };
 
-    // Validate Section 2 (Owner Information) — uses logged-in account when fields are empty
+    // Validate Section 2 (Owner Information)
     const validateOwnerInformation = () => {
-        const owner = resolveOwnerFields();
-
-        if (!owner.ownerName) {
-            Alert.alert('Error', 'Owner name is required. Complete your profile or sign in again.');
+        if (!formData.ownerName.trim()) {
+            Alert.alert('Error', 'Owner name is required');
             return false;
         }
-        if (!owner.ownerNationalId) {
-            Alert.alert(
-                'Error',
-                'National ID (Fayda) is required. Update your profile with your Fayda ID, then try again.'
-            );
+        if (!formData.ownerNationalId.trim()) {
+            Alert.alert('Error', 'National ID is required');
             return false;
         }
-        if (!owner.relationship) {
+        if (!formData.relationship) {
             Alert.alert('Error', 'Please select relationship to land');
             return false;
         }
-
-        setFormData((prev) => ({
-            ...prev,
-            ownerName: owner.ownerName,
-            ownerNationalId: owner.ownerNationalId,
-            relationship: owner.relationship,
-        }));
         return true;
     };
 
@@ -373,6 +321,23 @@ export default function VerificationRequestScreen() {
             if (currentSection === 4 && !validateDeclaration()) return;
         }
         setCurrentSection(index);
+    };
+
+    const isSectionValid = (sectionIndex: number) => {
+        switch (sectionIndex) {
+            case 0:
+                return !!formData.plotNumber.trim() && !!formData.plotNumber.match(/^PLOT-\d{4}-\d{5}$/i) && !!formData.landSize && parseFloat(formData.landSize) > 0 && !!formData.landUseType && !!formData.location.region && !!formData.location.zone && !!formData.location.wereda && !!formData.location.kebele;
+            case 1:
+                return !!formData.ownerName.trim() && !!formData.ownerNationalId.trim() && !!formData.relationship;
+            case 2:
+                return !!formData.documents.titleDeed && !!formData.documents.surveyMap;
+            case 3:
+                return true;
+            case 4:
+                return !!formData.acceptDeclaration1 && !!formData.acceptDeclaration2;
+            default:
+                return true;
+        }
     };
 
     const handleContinue = () => {
@@ -484,59 +449,56 @@ export default function VerificationRequestScreen() {
         }
     };
 
-    // Handle Submit
     const handleSubmit = async () => {
         if (!validateDeclaration()) return;
+        if (!token) {
+            Alert.alert('Login required', 'Please sign in to submit this request.');
+            return;
+        }
 
         setLoading(true);
         try {
-            const response = await fetch(`${API_URL}/requests`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    type: 'Ownership Verification',
-                    plotNumber: formData.plotNumber,
-                    region: formData.location.region,
-                    zone: formData.location.zone,
-                    wereda: formData.location.wereda,
-                    kebele: formData.location.kebele,
-                    landSize: formData.landSize,
-                    landUseType: formData.landUseType,
-                    reason: formData.verificationReason,
-                    metadata: {
-                        ownerName: formData.ownerName,
-                        ownerId: formData.ownerNationalId,
-                        relationship: formData.relationship,
-                        additionalNotes: formData.additionalNotes,
-                        contactPreference: formData.contactPreference,
-                        urgency: formData.urgency
-                    }
-                })
-            });
-
-            const data = await response.json();
-            if (response.ok) {
-                const refNum = data.request?.referenceNumber || `VER-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-                setSuccessRefNum(refNum);
-                setShowSuccessModal(true);
-            } else {
-                Alert.alert('Error', data.error || 'Submission failed');
+            const payload = await buildVerificationPayload(formData);
+            const missing = missingRequiredDocs(
+                getRequiredDocs('Ownership Verification'),
+                payload.documents
+            );
+            if (missing.length > 0) {
+                Alert.alert('Missing documents', `Please upload: ${missing.join(', ')}`);
+                return;
             }
-        } catch (error) {
-            Alert.alert('Error', 'Network error. Please try again.');
+
+            const data = await submitServiceRequest(token, 'Ownership Verification', payload);
+            setSubmittedRequest({ referenceNumber: data.request.referenceNumber });
+        } catch (error: unknown) {
+            Alert.alert('Error', error instanceof Error ? error.message : 'Submission failed');
         } finally {
             setLoading(false);
         }
     };
 
+    if (submittedRequest) {
+        return (
+            <SubmitSuccessView
+                title="Request submitted"
+                subtitle="Your ownership verification request was received."
+                referenceNumber={submittedRequest.referenceNumber}
+                onTrack={() =>
+                    navigation.navigate('RequestDetail', {
+                        referenceNumber: submittedRequest.referenceNumber,
+                    })
+                }
+                onHome={() => navigation.navigate('MainApp')}
+            />
+        );
+    }
+
     // Render Section Card - ✅ ENTIRE CARD IS SCROLLABLE VERTICALLY
     const renderSectionCard = (section: any, index: number) => (
         <ScrollView
             key={index}
-            className="w-full px-6"
+            className="px-6"
+            style={{ width: CARD_WIDTH }}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 30 }}
@@ -589,7 +551,8 @@ export default function VerificationRequestScreen() {
                 {currentSection < sections.length - 1 ? (
                     <TouchableOpacity
                         onPress={handleContinue}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={!isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${!isSectionValid(currentSection) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         <Text className="text-white text-base font-bold mr-2">Continue</Text>
                         <Ionicons name="arrow-forward" size={20} color="white" />
@@ -597,8 +560,8 @@ export default function VerificationRequestScreen() {
                 ) : (
                     <TouchableOpacity
                         onPress={handleSubmit}
-                        disabled={loading}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={loading || !isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${(loading || !isSectionValid(currentSection)) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         {loading ? (
                             <ActivityIndicator size="small" color="white" />
@@ -735,26 +698,8 @@ export default function VerificationRequestScreen() {
     );
 
     // Section 2: Owner Information
-    const renderOwnerInformation = () => {
-        const account = profile || user;
-        const displayName = formData.ownerName || account?.fullName || '';
-        const displayFayda = formData.ownerNationalId || account?.faydaId || '';
-        const accountReady = Boolean(displayName && displayFayda);
-
-        return (
+    const renderOwnerInformation = () => (
         <View className="w-full">
-            <View className="mb-4 p-3 rounded-xl bg-[#125f43ff]/10 border border-[#125f43ff]/20">
-                <Text className="text-[#125f43ff] text-sm font-semibold">
-                    Loaded from your account
-                </Text>
-                <Text className="text-gray-600 text-xs mt-1 leading-5">
-                    Name and Fayda ID are taken from your login. Relationship defaults to Owner — tap Continue when ready.
-                </Text>
-                {account?.email ? (
-                    <Text className="text-gray-500 text-xs mt-1">{account.email}</Text>
-                ) : null}
-            </View>
-
             {/* Owner Name */}
             <View className="mb-4">
                 <Text className="text-gray-700 text-sm font-semibold mb-2 ml-1">Owner Name *</Text>
@@ -762,14 +707,11 @@ export default function VerificationRequestScreen() {
                     <Ionicons name="person" size={22} color="#9CA3AF" />
                     <TextInput
                         className="flex-1 text-gray-800 text-base ml-3"
-                        placeholder="From your account"
+                        placeholder="Auto-filled from profile"
                         placeholderTextColor="#9CA3AF"
-                        value={displayName}
-                        editable={false}
+                        value={formData.ownerName}
+                        onChangeText={(text) => setFormData(prev => ({ ...prev, ownerName: text }))}
                     />
-                    {displayName ? (
-                        <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
-                    ) : null}
                 </View>
             </View>
 
@@ -780,18 +722,14 @@ export default function VerificationRequestScreen() {
                     <Ionicons name="card" size={22} color="#9CA3AF" />
                     <TextInput
                         className="flex-1 text-gray-800 text-base ml-3"
-                        placeholder="From your account"
+                        placeholder="1234 5678 9012 3456"
                         placeholderTextColor="#9CA3AF"
-                        value={displayFayda}
+                        value={formData.ownerNationalId}
                         editable={false}
                     />
-                    {displayFayda ? (
-                        <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
-                    ) : null}
+                    <Ionicons name="checkmark-circle" size={22} color="#125f43ff" />
                 </View>
-                <Text className="text-gray-500 text-xs mt-1 ml-1">
-                    {displayFayda ? '✓ Verified from your login credentials' : 'Fayda ID missing — update profile'}
-                </Text>
+                <Text className="text-gray-500 text-xs mt-1 ml-1">✓ Verified from profile</Text>
             </View>
 
             {/* Relationship */}
@@ -813,15 +751,8 @@ export default function VerificationRequestScreen() {
                     ))}
                 </View>
             </View>
-
-            {!accountReady && (
-                <Text className="text-amber-700 text-xs mb-2">
-                    Sign out and register again with a complete Fayda ID, or update your profile.
-                </Text>
-            )}
         </View>
-        );
-    };
+    );
 
     // Section 3: Documents
     const renderDocuments = () => (
@@ -1064,112 +995,12 @@ export default function VerificationRequestScreen() {
                             </Text>
                         </View>
 
-                        {/* Active Section Card Container */}
-                        <View className="flex-1 w-full">
+                        {/* ✅ Active Section Card */}
+                        <View className="flex-1 w-full items-center">
                             {renderSectionCard(sections[currentSection], currentSection)}
                         </View>
                     </LinearGradient>
                 </View>
-
-                {/* Premium Success Modal */}
-                <Modal
-                    visible={showSuccessModal}
-                    transparent={true}
-                    animationType="fade"
-                    statusBarTranslucent
-                    onRequestClose={() => setShowSuccessModal(false)}
-                >
-                    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-                        <View className="bg-white rounded-3xl p-6 w-full max-w-md items-center shadow-2xl">
-                            {/* Checked Animated Ring */}
-                            <View className="w-20 h-20 bg-green-50 rounded-full items-center justify-center mb-4 border-4 border-green-100">
-                                <Ionicons name="checkmark-circle" size={54} color="#125f43" />
-                            </View>
-                            
-                            {/* Title */}
-                            <Text className="text-xl font-bold text-gray-800 text-center mb-1">
-                                Request Submitted!
-                            </Text>
-                            <Text className="text-xs text-gray-400 text-center mb-6">
-                                ማመልከቻዎ በተሳካ ሁኔታ ገብቷል!
-                            </Text>
-
-                            {/* Info Box */}
-                            <View className="bg-gray-50 rounded-2xl p-4 w-full mb-6 border border-gray-100">
-                                <View className="flex-row justify-between items-center mb-2">
-                                    <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Reference Number</Text>
-                                    <Text className="text-[10px] text-gray-400 font-medium">የማጣቀሻ ቁጥር</Text>
-                                </View>
-                                <View className="bg-white border border-gray-100 rounded-xl p-3 items-center flex-row justify-between mb-4">
-                                    <Text className="font-mono text-base font-bold text-gray-800 tracking-wider">
-                                        {successRefNum}
-                                    </Text>
-                                    <TouchableOpacity 
-                                        onPress={() => {
-                                            Alert.alert('Copied', 'Reference number copied to clipboard!');
-                                        }}
-                                        className="p-1.5 bg-gray-100 rounded-lg"
-                                    >
-                                        <Ionicons name="copy-outline" size={16} color="#4B5563" />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View className="flex-row items-center justify-between border-t border-gray-100 pt-3">
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="time-outline" size={16} color="#6B7280" />
-                                        <Text className="text-xs text-gray-600 font-medium ml-1.5">Estimated Processing</Text>
-                                    </View>
-                                    <Text className="text-xs font-bold text-[#125f43ff]">3-5 Business Days</Text>
-                                </View>
-                            </View>
-
-                            {/* CTA Actions */}
-                            <View className="w-full gap-3">
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setShowSuccessModal(false);
-                                        navigation.navigate('TrackRequest', { referenceNumber: successRefNum });
-                                    }}
-                                    className="bg-[#125f43ff] py-3.5 rounded-xl w-full items-center flex-row justify-center shadow-lg"
-                                >
-                                    <Ionicons name="eye" size={18} color="white" />
-                                    <Text className="text-white font-bold text-base ml-2">Track Request Progress</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setFormData({
-                                            plotNumber: '',
-                                            previousCertificateNumber: '',
-                                            previousCertificate: null,
-                                            ownerName: user?.fullName || '',
-                                            ownerNationalId: user?.faydaId || '',
-                                            documents: {
-                                                proofOfOwnership: null,
-                                                sitePlan: null,
-                                                idCopy: null,
-                                                taxReceipt: null,
-                                            },
-                                            purpose: '',
-                                            customPurpose: '',
-                                            urgency: 'routine',
-                                            additionalNotes: '',
-                                            contactPreference: 'email',
-                                            acceptDeclaration1: false,
-                                            acceptDeclaration2: false,
-                                        });
-                                        setCurrentSection(0);
-                                        setShowSuccessModal(false);
-                                    }}
-                                    className="border border-gray-200 bg-white py-3 rounded-xl w-full items-center flex-row justify-center"
-                                >
-                                    <Ionicons name="refresh" size={18} color="#4B5563" />
-                                    <Text className="text-gray-600 font-bold text-base ml-2">Submit Another Request</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
             </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
     );

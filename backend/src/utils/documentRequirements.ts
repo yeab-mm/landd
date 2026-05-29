@@ -28,6 +28,9 @@ export const REQUIRED_DOCS_BY_TYPE: Record<string, string[]> = {
         'Kebele ID (Front)',
         'Tax Clearance',
     ],
+    'Land Subdivision': ['Title Deed', 'Survey Map', 'Subdivision Plan'],
+    'Land Mutation': ['Title Deed', 'Survey Map', 'Mutation Application'],
+    'Zoning Change': ['Title Deed', 'Survey Map', 'Zoning Application'],
 };
 
 export const getRequiredDocs = (requestType: string): string[] =>

@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
+import { CITIZEN_GRADIENT, CITIZEN_PRIMARY } from '../../theme/citizenTheme';
 
 interface ScreenHeaderProps {
   title: string;
@@ -23,12 +24,12 @@ export const ScreenHeader: React.FC<ScreenHeaderProps> = ({
 
   return (
     <LinearGradient
-      colors={['#125f43', '#1a7f5a']}
+      colors={CITIZEN_GRADIENT}
       start={{ x: 0, y: 0 }}
       end={{ x: 0, y: 1 }}
       className="px-6 pt-12 pb-6 rounded-b-3xl"
     >
-      <StatusBar barStyle="light-content" backgroundColor="#125f43" />
+      <StatusBar barStyle="light-content" backgroundColor={CITIZEN_PRIMARY} />
       <View className="flex-row items-center justify-between">
         <View className="flex-row items-center flex-1">
           {showBackButton && (

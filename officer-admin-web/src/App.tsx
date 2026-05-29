@@ -3,14 +3,18 @@ import { Navigate, Route, Routes } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
 import LoginPage from './pages/LoginPage'
 import AdminOverviewPage from './pages/admin/AdminOverviewPage'
+import AdminRequestsPage from './pages/admin/AdminRequestsPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
 import AdminMarketplacePage from './pages/admin/AdminMarketplacePage'
 import AdminPaymentsPage from './pages/admin/AdminPaymentsPage'
 import AdminReportsPage from './pages/admin/AdminReportsPage'
 import AdminSettingsPage from './pages/admin/AdminSettingsPage'
+import AdminRequestTriagePage from './pages/admin/AdminRequestTriagePage'
 import OfficerOverviewPage from './pages/officer/OfficerOverviewPage'
 import OfficerVerificationQueuePage from './pages/officer/OfficerVerificationQueuePage'
 import OfficerRequestQueuePage from './pages/officer/OfficerRequestQueuePage'
+import OfficerMarketplaceQueuePage from './pages/officer/OfficerMarketplaceQueuePage'
+import OfficerRequestReviewPage from './pages/officer/OfficerRequestReviewPage'
 import './App.css'
 
 function RequireRole({
@@ -59,6 +63,22 @@ function AppRoutes() {
         }
       />
       <Route
+        path="/officer/marketplace"
+        element={
+          <RequireRole role="officer">
+            <OfficerMarketplaceQueuePage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/officer/requests/:requestId"
+        element={
+          <RequireRole role="officer">
+            <OfficerRequestReviewPage />
+          </RequireRole>
+        }
+      />
+      <Route
         path="/officer/verification"
         element={
           <RequireRole role="officer">
@@ -87,6 +107,22 @@ function AppRoutes() {
         element={
           <RequireRole role="admin">
             <AdminOverviewPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/requests"
+        element={
+          <RequireRole role="admin">
+            <AdminRequestsPage />
+          </RequireRole>
+        }
+      />
+      <Route
+        path="/admin/requests/:requestId"
+        element={
+          <RequireRole role="admin">
+            <AdminRequestTriagePage />
           </RequireRole>
         }
       />

@@ -5,19 +5,26 @@ import {
   ScrollView,
   TouchableOpacity,
   StatusBar,
-  TextInput,
   Alert,
   ActivityIndicator,
   RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 
 import { Button } from '../components/ui/Button';
 import { useAuth } from '../context/AuthContext';
 import { marketplaceAPI, chatAPI } from '../api/config';
+import { Screen } from '../components/layout/Screen';
+import {
+  CitizenHeader,
+  EmptyState,
+  SearchBar,
+  FilterChips,
+  MarketplaceListingCard,
+} from '../components/citizen/CitizenUI';
+import { CITIZEN_PRIMARY, CITIZEN_BG } from '../theme/citizenTheme';
 
 type Listing = {
   id: string;
@@ -122,7 +129,7 @@ export default function MarketplaceScreen() {
   const handleDetails = (land: Listing) => {
     Alert.alert(
       land.title,
-      `📍 ${land.location}\n💰 ${land.price}\n📐 ${land.area}\n📋 Plot: ${land.plotNumber}\n\n${land.description || 'No description.'}\n\nAsk the seller anything in live chat. You can also request Ownership Verification from Services.`,
+      `Location: ${land.location}\nPrice: ${land.price}\nArea: ${land.area}\nPlot: ${land.plotNumber}\n\n${land.description || 'No description.'}\n\nAsk the seller anything in live chat. You can also request Ownership Verification from Services.`,
       [
         {
           text: 'Ownership verification',
@@ -135,35 +142,28 @@ export default function MarketplaceScreen() {
   };
 
   return (
-    <View className="flex-1 bg-gray-50">
-      <StatusBar barStyle="light-content" backgroundColor="#125f43ff" />
+    <Screen style={{ backgroundColor: CITIZEN_BG }}>
+      <StatusBar barStyle="light-content" backgroundColor={CITIZEN_PRIMARY} />
 
-      <LinearGradient
-        colors={['#125f43ff', '#125f43ff']}
-        className="px-6 pt-10 pb-6 rounded-b-3xl"
-      >
-        <Text className="text-white text-2xl font-bold mb-1">Land Marketplace</Text>
-        <Text className="text-white/80 text-sm">Officer-approved listings only</Text>
+      <CitizenHeader
+        title="Land Marketplace"
+        subtitle="Officer-approved listings only"
+        showBack
+        stat={{ label: 'Listings', value: filteredListings.length }}
+      />
 
-        <View className="mt-4 bg-white/10 rounded-xl px-4 py-3 flex-row items-center border border-white/30">
-          <Ionicons name="search" size={20} color="white" />
-          <TextInput
-            className="flex-1 text-white text-base ml-3"
-            placeholder="Search by location, plot..."
-            placeholderTextColor="rgba(255,255,255,0.7)"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-          {searchQuery.length > 0 && (
-            <TouchableOpacity onPress={() => setSearchQuery('')}>
-              <Ionicons name="close-circle" size={20} color="white" />
-            </TouchableOpacity>
-          )}
-        </View>
-      </LinearGradient>
+      <View className="px-5 -mt-2 mb-3">
+        <SearchBar
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search location, plot..."
+          onClear={() => setSearchQuery('')}
+        />
+      </View>
 
       <ScrollView
-        className="flex-1 px-6"
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 100 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -172,27 +172,19 @@ export default function MarketplaceScreen() {
               setRefreshing(true);
               loadListings();
             }}
-            colors={['#125f43']}
+            colors={[CITIZEN_PRIMARY]}
           />
         }
       >
-        <View className="flex-row py-4">
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {filters.map((filter) => (
-              <TouchableOpacity
-                key={filter}
-                onPress={() => {
-                  setActiveFilter(filter);
-                  setVisibleCount(10);
-                }}
-                className={`px-5 py-2 rounded-full mr-2 ${activeFilter === filter ? 'bg-[#125f43ff]' : 'bg-white border border-gray-200'}`}
-              >
-                <Text className={`text-sm font-semibold ${activeFilter === filter ? 'text-white' : 'text-gray-700'}`}>
-                  {filter}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+        <View className="py-3">
+          <FilterChips
+            options={filters}
+            active={activeFilter}
+            onSelect={(f) => {
+              setActiveFilter(f);
+              setVisibleCount(10);
+            }}
+          />
         </View>
 
         <View className="flex-row items-center justify-between mb-4">
@@ -204,65 +196,28 @@ export default function MarketplaceScreen() {
         {loading ? (
           <ActivityIndicator size="large" color="#125f43" className="py-12" />
         ) : displayedListings.length === 0 ? (
-          <View className="items-center py-12">
-            <Ionicons name="storefront-outline" size={64} color="#9CA3AF" />
-            <Text className="text-gray-500 text-base mt-4 text-center">No approved listings yet</Text>
-            <Text className="text-gray-400 text-sm mt-2 text-center px-4">
-              Submit your land for sale — admin and officer must approve before it appears here.
-            </Text>
-          </View>
+          <EmptyState
+            icon="storefront-outline"
+            title="No listings yet"
+            message="Approved properties will appear here. List your land and wait for officer verification."
+            actionLabel="List my land"
+            onAction={() => navigation.navigate('AddLandListing')}
+          />
         ) : (
           displayedListings.map((land) => (
-            <TouchableOpacity
+            <MarketplaceListingCard
               key={land.id}
-              className="bg-white rounded-2xl overflow-hidden mb-4 shadow-sm border border-gray-100"
-              activeOpacity={0.8}
+              title={land.title}
+              location={land.location}
+              price={land.price}
+              area={land.area}
+              typeLabel={land.type}
+              verified={land.verified}
+              contacting={contactingId === land.id}
               onPress={() => handleDetails(land)}
-            >
-              <View className="relative">
-                <View className="bg-gray-200 h-40 w-full items-center justify-center">
-                  <Ionicons name="image-outline" size={60} color="#9CA3AF" />
-                </View>
-                <View className={`absolute top-3 left-3 px-3 py-1 rounded-full ${land.type === 'For Sale' ? 'bg-[#125f43ff]' : 'bg-blue-600'}`}>
-                  <Text className="text-white text-xs font-semibold">{land.type}</Text>
-                </View>
-                {land.verified && (
-                  <View className="absolute top-3 right-3 bg-slate-900 px-2 py-1 rounded-full flex-row items-center border border-emerald-500/50">
-                    <Ionicons name="shield-checkmark" size={12} color="#10b981" />
-                    <Text className="text-white text-[10px] font-bold ml-1 uppercase">Verified</Text>
-                  </View>
-                )}
-              </View>
-
-              <View className="p-4">
-                <Text className="text-gray-800 font-bold text-lg mb-1">{land.title}</Text>
-                <View className="flex-row items-center mb-2">
-                  <Ionicons name="location" size={16} color="#9CA3AF" />
-                  <Text className="text-gray-600 text-sm ml-1">{land.location}</Text>
-                </View>
-                <View className="flex-row items-center justify-between mb-3">
-                  <Text className="text-[#125f43ff] font-bold text-lg">{land.price}</Text>
-                  <Text className="text-gray-600 text-sm">{land.area}</Text>
-                </View>
-                <View className="flex-row gap-2">
-                  <Button
-                    title={contactingId === land.id ? 'Connecting...' : 'Live chat'}
-                    onPress={() => handleContact(land)}
-                    variant="primary"
-                    className="flex-1 py-2.5 h-10"
-                    textClassName="text-sm"
-                    disabled={contactingId === land.id}
-                  />
-                  <Button
-                    title="Details"
-                    onPress={() => handleDetails(land)}
-                    variant="outline"
-                    className="flex-1 py-2.5 h-10"
-                    textClassName="text-sm"
-                  />
-                </View>
-              </View>
-            </TouchableOpacity>
+              onContact={() => handleContact(land)}
+              onDetails={() => handleDetails(land)}
+            />
           ))
         )}
 
@@ -278,10 +233,18 @@ export default function MarketplaceScreen() {
 
       <TouchableOpacity
         onPress={() => navigation.navigate('AddLandListing')}
-        className="absolute bottom-20 right-6 bg-[#125f43ff] rounded-full p-4 shadow-lg"
+        activeOpacity={0.88}
+        className="absolute bottom-20 right-6 rounded-full p-4"
+        style={{
+          backgroundColor: CITIZEN_PRIMARY,
+          shadowColor: CITIZEN_PRIMARY,
+          shadowOpacity: 0.45,
+          shadowRadius: 12,
+          elevation: 8,
+        }}
       >
         <Ionicons name="add" size={28} color="white" />
       </TouchableOpacity>
-    </View>
+    </Screen>
   );
 }

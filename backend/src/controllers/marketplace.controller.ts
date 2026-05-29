@@ -43,6 +43,7 @@ export const getMarketplaceListings = async (req: Request, res: Response) => {
         phone: land.owner.phone,
         images,
         landUseType: land.landUseType,
+        governmentTax: land.governmentTax,
       };
     });
 

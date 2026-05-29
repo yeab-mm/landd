@@ -16,7 +16,7 @@ interface AuthState {
 
 interface AuthContextType extends AuthState {
   login: (identifier: string, password: string) => Promise<void>;
-  register: (userData: any) => Promise<void>;
+  register: (userData: any) => Promise<{ demoCode?: string }>;
   verifyOtp: (phone: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -91,9 +91,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       await AsyncStorage.setItem(STORAGE_KEYS.PENDING_PHONE, userData.phone);
       await AsyncStorage.setItem(STORAGE_KEYS.OTP_VERIFIED, 'false');
+      await AsyncStorage.removeItem(STORAGE_KEYS.TOKEN);
+      await AsyncStorage.removeItem(STORAGE_KEYS.USER);
+      setToken(null);
+      setUser(null);
       setPendingPhone(userData.phone);
       setIsOtpVerified(false);
-      
+
+      return { demoCode: result.demoCode };
     } catch (error) {
       console.error('Register error:', error);
       throw error;

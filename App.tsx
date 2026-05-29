@@ -26,7 +26,7 @@ export default function App() {
             <LanguageProvider>
               <AuthProvider>
                 <AppNavigator />
-                <StatusBar style="dark" backgroundColor="#ffffff" />
+                <StatusBar style="light" />
               </AuthProvider>
             </LanguageProvider>
           </PaymentProvider>

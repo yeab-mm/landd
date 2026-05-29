@@ -47,6 +47,7 @@ model Land {
   transactionType    String?
   listingDescription String?
   listingImages      String?
+  governmentTax      Int?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
 

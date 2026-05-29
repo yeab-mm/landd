@@ -4,33 +4,19 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
-import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api/config';
 
-// ✅ FIXED: Proper navigation types
 type RootStackParamList = {
     TrackRequest: { referenceNumber?: string };
     Home: undefined;
     MainApp: undefined;
     VerificationRequest: undefined;
-    ChatDetail: { chatId: string; name: string };
 };
 
 type TrackRequestScreenProp = StackNavigationProp<RootStackParamList, 'TrackRequest'>;
 type TrackRequestRouteProp = RouteProp<RootStackParamList, 'TrackRequest'>;
 
-// ✅ FIXED: Proper Request type definition
-type Request = {
-    referenceNumber: string;
-    requestType: string;
-    submissionDate: string;
-    status: 'Approved' | 'Under Review' | 'Document Validation' | 'Rejected';
-    plotNumber: string;
-    location: string;
-};
-
 // ✅ Mock Request List Data
-const MOCK_REQUESTS: Request[] = [
+const MOCK_REQUESTS = [
     {
         referenceNumber: 'VER-2024-ABC123',
         requestType: 'Ownership Verification',
@@ -58,7 +44,7 @@ const MOCK_REQUESTS: Request[] = [
 ];
 
 // ✅ Get status color
-const getStatusColor = (status: Request['status']) => {
+const getStatusColor = (status: string) => {
     switch (status) {
         case 'Approved': return '#125f43ff';
         case 'Under Review': return '#F59E0B';
@@ -69,13 +55,13 @@ const getStatusColor = (status: Request['status']) => {
 };
 
 // ✅ Get status icon
-const getStatusIcon = (status: Request['status']) => {
+const getStatusIcon = (status: string) => {
     switch (status) {
-        case 'Approved': return 'checkmark-circle' as const;
-        case 'Under Review': return 'hourglass' as const;
-        case 'Document Validation': return 'document-text' as const;
-        case 'Rejected': return 'close-circle' as const;
-        default: return 'ellipse' as const;
+        case 'Approved': return 'checkmark-circle';
+        case 'Under Review': return 'hourglass';
+        case 'Document Validation': return 'document-text';
+        case 'Rejected': return 'close-circle';
+        default: return 'ellipse';
     }
 };
 
@@ -83,133 +69,58 @@ export default function TrackRequestScreen() {
     const navigation = useNavigation<TrackRequestScreenProp>();
     const route = useRoute<TrackRequestRouteProp>();
     const { referenceNumber } = route.params || {};
-    const { token } = useAuth();
 
     const [loading, setLoading] = useState(true);
-    const [viewMode, setViewMode] = useState<'list' | 'detail'>('list');
-    const [selectedRequest, setSelectedRequest] = useState<Request | null>(null);
-    const [requests, setRequests] = useState<Request[]>([]);
-
-    const mapBackendStatus = (status: string): Request['status'] => {
-        const s = (status || '').toLowerCase();
-        if (s === 'approved') return 'Approved';
-        if (s === 'rejected') return 'Rejected';
-        if (s === 'document validation') return 'Document Validation';
-        if (s === 'pending' || s === 'submitted' || s === 'under review') return 'Under Review';
-        return 'Under Review';
-    };
-
-    const mapBackendRequestToFrontend = (req: any): Request => {
-        const formData =
-            typeof req.formData === 'string'
-                ? (() => {
-                      try {
-                          return JSON.parse(req.formData);
-                      } catch {
-                          return {};
-                      }
-                  })()
-                : req.formData || {};
-        return {
-            referenceNumber: req.referenceNumber || '',
-            requestType: req.type || 'Ownership Verification',
-            submissionDate: req.createdAt
-                ? new Date(req.createdAt).toISOString().split('T')[0]
-                : new Date().toISOString().split('T')[0],
-            status: mapBackendStatus(req.status),
-            plotNumber: formData.plotNumber || req.plotNumber || 'N/A',
-            location: formData.region
-                ? `${formData.region}, ${formData.kebele || 'Kebele'}`
-                : req.region || 'N/A',
-        };
-    };
+    const [viewMode, setViewMode] = useState<'list' | 'detail'>('list'); // ✅ List or Detail view
+    const [selectedRequest, setSelectedRequest] = useState<any>(null);
+    const [requests, setRequests] = useState<any[]>([]);
 
     useEffect(() => {
-        const fetchTrackData = async () => {
-            setLoading(true);
-            try {
-                if (referenceNumber) {
-                    const response = await fetch(`${API_URL}/requests/${referenceNumber}`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const data = await response.json();
-                    if (response.ok && data.request) {
-                        setSelectedRequest(mapBackendRequestToFrontend(data.request));
-                        setViewMode('detail');
-                    } else {
-                        setSelectedRequest({
-                            referenceNumber,
-                            requestType: 'Ownership Verification',
-                            submissionDate: new Date().toISOString().split('T')[0],
-                            status: 'Under Review',
-                            plotNumber: 'N/A',
-                            location: 'N/A'
-                        });
-                        setViewMode('detail');
-                    }
-                } else {
-                    const response = await fetch(`${API_URL}/requests`, {
-                        headers: { 'Authorization': `Bearer ${token}` }
-                    });
-                    const data = await response.json();
-                    if (response.ok && data.requests) {
-                        const mapped = data.requests.map(mapBackendRequestToFrontend);
-                        setRequests(mapped);
-                    } else {
-                        setRequests([]);
-                    }
-                    setViewMode('list');
-                }
-            } catch (error) {
-                console.error('Fetch tracking data error:', error);
-                if (referenceNumber) {
-                    setSelectedRequest({
-                        referenceNumber,
-                        requestType: 'Ownership Verification',
-                        submissionDate: new Date().toISOString().split('T')[0],
-                        status: 'Under Review',
-                        plotNumber: 'N/A',
-                        location: 'N/A'
-                    });
-                    setViewMode('detail');
-                } else {
-                    setRequests([]);
-                    setViewMode('list');
-                }
-            } finally {
-                setLoading(false);
+        setTimeout(() => {
+            // ✅ If referenceNumber provided (from Verification), show that request directly
+            if (referenceNumber) {
+                const foundRequest = MOCK_REQUESTS.find(req => req.referenceNumber === referenceNumber) || {
+                    referenceNumber,
+                    requestType: 'Ownership Verification',
+                    submissionDate: new Date().toISOString().split('T')[0],
+                    status: 'Under Review',
+                    plotNumber: 'PLOT-2024-12345',
+                    location: 'Bahir Dar, Kebele 03',
+                };
+                setSelectedRequest(foundRequest);
+                setViewMode('detail');
+            } else {
+                // ✅ Otherwise show list of all requests
+                setRequests(MOCK_REQUESTS);
+                setViewMode('list');
             }
-        };
-
-        fetchTrackData();
-    }, [referenceNumber, token]);
+            setLoading(false);
+        }, 500);
+    }, [referenceNumber]);
 
     // ✅ Render Request List Item
-    const renderRequestItem = (request: Request, index: number) => (
+    const renderRequestItem = (request: any, index: number) => (
         <TouchableOpacity
-            key={request.referenceNumber} // ✅ Use unique ID instead of index
+            key={index}
             onPress={() => {
                 setSelectedRequest(request);
                 setViewMode('detail');
             }}
             className="bg-white rounded-2xl p-4 mb-3 shadow-sm border border-gray-100"
             activeOpacity={0.7}
-            accessibilityLabel={`View details for request ${request.referenceNumber}`}
         >
             <View className="flex-row items-center justify-between mb-2">
                 <Text className="text-gray-800 font-bold text-base">{request.requestType}</Text>
-                <View className={`px-3 py-1 rounded-full ${
-                    request.status === 'Approved' ? 'bg-green-100' :
+                <View className={`px-3 py-1 rounded-full ${request.status === 'Approved' ? 'bg-green-100' :
                     request.status === 'Under Review' ? 'bg-yellow-100' :
-                    request.status === 'Document Validation' ? 'bg-blue-100' :
-                    'bg-gray-100'
-                }`}>
-                    <Text className={`text-xs font-medium ${
-                        request.status === 'Approved' ? 'text-green-700' :
-                        request.status === 'Under Review' ? 'text-yellow-700' :
-                        request.status === 'Document Validation' ? 'text-blue-700' :
-                        'text-gray-700'
+                        request.status === 'Document Validation' ? 'bg-blue-100' :
+                            'bg-gray-100'
                     }`}>
+                    <Text className={`text-xs font-medium ${request.status === 'Approved' ? 'text-green-700' :
+                        request.status === 'Under Review' ? 'text-yellow-700' :
+                            request.status === 'Document Validation' ? 'text-blue-700' :
+                                'text-gray-700'
+                        }`}>
                         {request.status}
                     </Text>
                 </View>
@@ -275,11 +186,10 @@ export default function TrackRequestScreen() {
         return (
             <View>
                 {/* Current Status Banner */}
-                <View className={`rounded-2xl p-4 mb-6 ${
-                    selectedRequest.status === 'Approved' ? 'bg-green-100 border border-green-200' :
+                <View className={`rounded-2xl p-4 mb-6 ${selectedRequest.status === 'Approved' ? 'bg-green-100 border border-green-200' :
                     selectedRequest.status === 'Rejected' ? 'bg-red-100 border border-red-200' :
-                    'bg-blue-100 border border-blue-200'
-                }`}>
+                        'bg-blue-100 border border-blue-200'
+                    }`}>
                     <View className="flex-row items-center">
                         <Ionicons
                             name={getStatusIcon(selectedRequest.status)}
@@ -287,18 +197,16 @@ export default function TrackRequestScreen() {
                             color={getStatusColor(selectedRequest.status)}
                         />
                         <View className="ml-3 flex-1">
-                            <Text className={`font-bold ${
-                                selectedRequest.status === 'Approved' ? 'text-green-800' :
+                            <Text className={`font-bold ${selectedRequest.status === 'Approved' ? 'text-green-800' :
                                 selectedRequest.status === 'Rejected' ? 'text-red-800' :
-                                'text-blue-800'
-                            }`}>
+                                    'text-blue-800'
+                                }`}>
                                 {selectedRequest.status}
                             </Text>
-                            <Text className={`text-sm ${
-                                selectedRequest.status === 'Approved' ? 'text-green-700' :
+                            <Text className={`text-sm ${selectedRequest.status === 'Approved' ? 'text-green-700' :
                                 selectedRequest.status === 'Rejected' ? 'text-red-700' :
-                                'text-blue-700'
-                            }`}>
+                                    'text-blue-700'
+                                }`}>
                                 Estimated completion: 3-5 business days
                             </Text>
                         </View>
@@ -313,11 +221,10 @@ export default function TrackRequestScreen() {
                         <View key={item.step} className="mb-6 last:mb-0">
                             <View className="flex-row">
                                 <View className="items-center mr-4">
-                                    <View className={`w-8 h-8 rounded-full items-center justify-center ${
-                                        item.status === 'completed' ? 'bg-[#125f43ff]' :
+                                    <View className={`w-8 h-8 rounded-full items-center justify-center ${item.status === 'completed' ? 'bg-[#125f43ff]' :
                                         item.status === 'active' ? 'bg-[#F59E0B]' :
-                                        'bg-gray-200'
-                                    }`}>
+                                            'bg-gray-200'
+                                        }`}>
                                         <Ionicons
                                             name={item.status === 'completed' ? 'checkmark-circle' :
                                                 item.status === 'active' ? 'hourglass' : 'ellipse'}
@@ -326,20 +233,17 @@ export default function TrackRequestScreen() {
                                         />
                                     </View>
                                     {index < timeline.length - 1 && (
-                                        <View className={`w-0.5 h-12 ${
-                                            item.status === 'completed' ? 'bg-[#125f43ff]' : 'bg-gray-200'
-                                        }`} />
+                                        <View className={`w-0.5 h-12 ${item.status === 'completed' ? 'bg-[#125f43ff]' : 'bg-gray-200'
+                                            }`} />
                                     )}
                                 </View>
                                 <View className="flex-1 pb-2">
-                                    <Text className={`font-semibold ${
-                                        item.status === 'pending' ? 'text-gray-400' : 'text-gray-800'
-                                    }`}>
+                                    <Text className={`font-semibold ${item.status === 'pending' ? 'text-gray-400' : 'text-gray-800'
+                                        }`}>
                                         {item.title}
                                     </Text>
-                                    <Text className={`text-sm ${
-                                        item.status === 'pending' ? 'text-gray-400' : 'text-gray-600'
-                                    }`}>
+                                    <Text className={`text-sm ${item.status === 'pending' ? 'text-gray-400' : 'text-gray-600'
+                                        }`}>
                                         {item.description}
                                     </Text>
                                     {item.date && (
@@ -350,19 +254,6 @@ export default function TrackRequestScreen() {
                         </View>
                     ))}
                 </View>
-
-                {/* Contact Officer - ✅ FIXED: Proper navigation typing */}
-                <TouchableOpacity 
-                    onPress={() => navigation.navigate('ChatDetail', { 
-                        chatId: `officer-${selectedRequest.referenceNumber}`, 
-                        name: 'Land Officer (Assigned)' 
-                    })}
-                    className="flex-row items-center justify-center bg-[#125f43ff]/10 py-3 rounded-xl border border-[#125f43ff]/20 mb-6"
-                    accessibilityLabel="Contact assigned land officer"
-                >
-                    <Ionicons name="chatbubble-ellipses" size={20} color="#125f43ff" />
-                    <Text className="text-[#125f43ff] font-bold ml-2">Contact Assigned Officer</Text>
-                </TouchableOpacity>
 
                 {/* Request Info */}
                 <View className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-6">
@@ -397,7 +288,6 @@ export default function TrackRequestScreen() {
                         onPress={() => setViewMode('list')}
                         className="bg-[#125f43ff] py-4 rounded-xl items-center shadow-lg"
                         activeOpacity={0.8}
-                        accessibilityLabel="Back to request list"
                     >
                         <Text className="text-white font-bold text-lg">Back to Request List</Text>
                     </TouchableOpacity>
@@ -406,7 +296,6 @@ export default function TrackRequestScreen() {
                         onPress={() => navigation.navigate('MainApp')}
                         className="bg-white border-2 border-[#125f43ff] py-4 rounded-xl items-center"
                         activeOpacity={0.8}
-                        accessibilityLabel="Back to home dashboard"
                     >
                         <Text className="text-[#125f43ff] font-bold text-lg">Back to Dashboard</Text>
                     </TouchableOpacity>
@@ -440,7 +329,6 @@ export default function TrackRequestScreen() {
                         onPress={() => viewMode === 'detail' ? setViewMode('list') : navigation.goBack()}
                         className="w-10 h-10 rounded-full bg-white/20 items-center justify-center mr-3"
                         activeOpacity={0.7}
-                        accessibilityLabel={viewMode === 'detail' ? 'Back to request list' : 'Go back to previous screen'}
                     >
                         <Ionicons name="arrow-back" size={24} color="white" />
                     </TouchableOpacity>

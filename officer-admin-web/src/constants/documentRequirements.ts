@@ -23,6 +23,15 @@ export const REQUIRED_DOCS_BY_TYPE: Record<string, string[]> = {
     'New Owner ID',
     'Tax Clearance',
   ],
+  'Marketplace Listing': [
+    'Title Deed',
+    'Survey Map',
+    'Kebele ID (Front)',
+    'Tax Clearance',
+  ],
+  'Land Subdivision': ['Title Deed', 'Survey Map', 'Subdivision Plan'],
+  'Land Mutation': ['Title Deed', 'Survey Map', 'Mutation Application'],
+  'Zoning Change': ['Title Deed', 'Survey Map', 'Zoning Application'],
 }
 
 export function getRequiredDocs(requestType: string): string[] {

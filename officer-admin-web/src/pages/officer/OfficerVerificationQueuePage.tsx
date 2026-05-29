@@ -1,19 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   apiFetch,
   parseFormData,
   requestApplicant,
   type RequestRow,
 } from '../../api/client'
-import DocumentReviewModal from '../../components/DocumentReviewModal'
 import { EmptyState, Panel, StatCard, StatusBadge } from '../../components/ui'
 import { PortalLayout, officerNav } from '../../components/PortalLayout'
 import { useAuth } from '../../context/AuthContext'
-
-function isOpenStatus(status: string) {
-  const s = (status || '').toLowerCase()
-  return !s.includes('approv') && !s.includes('reject')
-}
+import { isForwardedToOfficer, isOpenForOfficer } from '../../utils/requestWorkflow'
 
 export default function OfficerVerificationQueuePage() {
   const { token } = useAuth()
@@ -21,9 +17,6 @@ export default function OfficerVerificationQueuePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [reviewTarget, setReviewTarget] = useState<RequestRow | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [actionError, setActionError] = useState('')
 
   const load = useCallback(async () => {
     if (!token) return
@@ -32,7 +25,9 @@ export default function OfficerVerificationQueuePage() {
     try {
       const data = await apiFetch<{ requests: RequestRow[] }>('/requests', token)
       setRequests(
-        (data.requests || []).filter((r) => r.type === 'Ownership Verification'),
+        (data.requests || []).filter(
+          (r) => r.type === 'Ownership Verification' && isForwardedToOfficer(r),
+        ),
       )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load verification queue')
@@ -58,59 +53,33 @@ export default function OfficerVerificationQueuePage() {
     })
   }, [requests, search])
 
-  const pendingCount = requests.filter((r) => isOpenStatus(r.status)).length
-  const validationCount = requests.filter((r) =>
-    (r.status || '').toLowerCase().includes('valid'),
-  ).length
+  const pendingCount = requests.filter(isOpenForOfficer).length
   const approvedCount = requests.filter((r) =>
     (r.status || '').toLowerCase().includes('approv'),
   ).length
 
-  const submitUpdate = async (
-    requestId: string,
-    status: string,
-    docs: Record<string, boolean>,
-    notes: string,
-  ) => {
-    await apiFetch(`/requests/${requestId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status,
-        docValidation: { docs, notes: notes || undefined },
-      }),
-    })
-  }
-
-  const docAuth = (r: RequestRow) => {
-    const fd = parseFormData(r.formData)
-    const auth = fd.docAuthenticity as { docs?: Record<string, boolean>; notes?: string } | undefined
-    return auth
-  }
-
   return (
     <PortalLayout
-      title="Verification Queue"
-      subtitle="Review verification requests, validate Sened documents, and approve or reject (UC-18 to UC-20)."
+      title="Field verification"
+      subtitle="Ownership claims forwarded by admin — review documents and approve or reject."
       nav={officerNav}
     >
       {error ? <p className="banner banner--error">{error}</p> : null}
-      {actionError ? <p className="banner banner--error">{actionError}</p> : null}
 
-      <div className="stat-grid stat-grid--4">
-        <StatCard label="Open" value={pendingCount} tone="warning" />
-        <StatCard label="In validation" value={validationCount} tone="info" />
+      <div className="stat-grid">
+        <StatCard label="Awaiting decision" value={pendingCount} tone="warning" />
         <StatCard label="Approved" value={approvedCount} tone="success" />
-        <StatCard label="Total" value={requests.length} />
+        <StatCard label="Forwarded cases" value={requests.length} tone="info" />
       </div>
 
       <Panel
-        title="Pending verification requests"
-        subtitle={`${filtered.length} request(s)`}
+        title="Verification queue"
+        subtitle="Admin-cleared ownership verification"
         actions={
           <div className="toolbar">
             <input
               type="search"
-              placeholder="Search reference or applicant…"
+              placeholder="Search claim ID or applicant…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="input-search"
@@ -122,18 +91,20 @@ export default function OfficerVerificationQueuePage() {
         }
       >
         {loading ? (
-          <p className="muted">Loading verification queue…</p>
+          <p className="muted">Loading queue…</p>
         ) : filtered.length === 0 ? (
-          <EmptyState title="All caught up" message="No verification requests in the queue." />
+          <EmptyState
+            title="Queue clear"
+            message="No verification cases forwarded by admin right now."
+          />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>Reference</th>
+                  <th>Claim ID</th>
                   <th>Applicant</th>
                   <th>Land</th>
-                  <th>Submitted</th>
                   <th>Status</th>
                   <th />
                 </tr>
@@ -141,39 +112,29 @@ export default function OfficerVerificationQueuePage() {
               <tbody>
                 {filtered.map((r) => {
                   const fd = parseFormData(r.formData)
-                  const auth = docAuth(r)
                   return (
                     <tr key={r.id}>
                       <td>
                         <strong>{r.referenceNumber}</strong>
+                        <div className="muted">{new Date(r.createdAt).toLocaleDateString()}</div>
                       </td>
-                      <td>{requestApplicant(r)}</td>
                       <td>
-                        {(fd.landUseType as string) || '—'} · {(fd.kebele as string) || '—'}
+                        <div>{requestApplicant(r)}</div>
+                        <small className="muted">{r.user?.email || ''}</small>
                       </td>
-                      <td>{new Date(r.createdAt).toLocaleDateString()}</td>
+                      <td>
+                        <div>{(fd.landUseType as string) || 'Residential'}</div>
+                        <div className="muted">
+                          {(fd.kebele as string) || '—'} · {(fd.plotNumber as string) || '—'}
+                        </div>
+                      </td>
                       <td>
                         <StatusBadge status={r.status} />
                       </td>
                       <td className="table-actions">
-                        {isOpenStatus(r.status) ? (
-                          <button
-                            type="button"
-                            className="btn btn--primary btn--sm"
-                            onClick={() => {
-                              setActionError('')
-                              setReviewTarget(r)
-                            }}
-                          >
-                            Review documents
-                          </button>
-                        ) : (
-                          <span className="muted">
-                            {auth?.docs
-                              ? `${Object.keys(auth.docs).length} doc(s) reviewed`
-                              : 'Closed'}
-                          </span>
-                        )}
+                        <Link to={`/officer/requests/${r.id}`} className="btn btn--primary btn--sm">
+                          {isOpenForOfficer(r) ? 'Review case' : 'View audit'}
+                        </Link>
                       </td>
                     </tr>
                   )
@@ -183,64 +144,6 @@ export default function OfficerVerificationQueuePage() {
           </div>
         )}
       </Panel>
-
-      <DocumentReviewModal
-        open={!!reviewTarget}
-        applicant={reviewTarget ? requestApplicant(reviewTarget) : ''}
-        requestType={reviewTarget?.type || ''}
-        referenceNumber={reviewTarget?.referenceNumber || ''}
-        initialDocs={reviewTarget ? docAuth(reviewTarget)?.docs : undefined}
-        initialNotes={reviewTarget ? docAuth(reviewTarget)?.notes || '' : ''}
-        submitting={submitting}
-        onClose={() => !submitting && setReviewTarget(null)}
-        onSaveValidation={async (docs, notes) => {
-          if (!reviewTarget) return
-          setSubmitting(true)
-          setActionError('')
-          try {
-            await submitUpdate(reviewTarget.id, 'Document Validation', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Could not save validation')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-        onApprove={async (docs, notes) => {
-          if (!reviewTarget) return
-          setSubmitting(true)
-          setActionError('')
-          try {
-            await submitUpdate(reviewTarget.id, 'Approved', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Approval failed')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-        onReject={async (docs, notes) => {
-          if (!reviewTarget) return
-          if (!notes.trim()) {
-            setActionError('Officer notes are required when rejecting a request.')
-            return
-          }
-          if (!window.confirm(`Reject ${requestApplicant(reviewTarget)}'s verification request?`)) return
-          setSubmitting(true)
-          setActionError('')
-          try {
-            await submitUpdate(reviewTarget.id, 'Rejected', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Rejection failed')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-      />
     </PortalLayout>
   )
 }

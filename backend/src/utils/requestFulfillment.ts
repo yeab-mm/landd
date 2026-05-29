@@ -54,6 +54,7 @@ export async function fulfillApprovedRequest(request: {
         forSale: true,
         listingTitle: String(formData.title || formData.listingTitle || `${basePayload.landUseType} plot`),
         listingPrice: parseInt(String(formData.price || formData.listingPrice || '0').replace(/\D/g, ''), 10) || 0,
+        governmentTax: parseInt(String(formData.governmentTax || '0').replace(/\D/g, ''), 10) || 0,
         transactionType: formData.transactionType || 'For Sale',
         listingDescription: String(formData.description || formData.listingDescription || ''),
         listingImages: parseImages(formData.images || formData.listingImages),
@@ -82,7 +83,7 @@ export async function fulfillApprovedRequest(request: {
   if (isMarketplace) {
     await notifyUser(request.userId, {
       title: 'Listing approved',
-      message: `Your marketplace listing (${ref}) for plot ${plotNumber} is now live. Buyers can contact you in chat.`,
+      message: `Your marketplace listing (${ref}) for plot ${plotNumber} is now live on the Land Portal marketplace. Buyers can view it and contact you in chat.`,
       type: 'success',
     });
   } else {

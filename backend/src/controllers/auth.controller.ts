@@ -62,7 +62,8 @@ const sendSMS = async (to: string, body: string) => {
 // ============================================
 export const register = async (req: Request, res: Response): Promise<Response> => {
   try {
-    const { fullName, email, phone, faydaId, password } = req.body;
+    const { fullName, email, phone, password } = req.body;
+    const faydaId = (req.body.faydaId || req.body.nationalId || '').trim();
     
     if (!fullName || !email || !phone || !faydaId || !password) {
       return res.status(400).json({ error: 'All fields are required' });

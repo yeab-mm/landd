@@ -4,10 +4,9 @@
 // 2. Returning user (not logged in) → Login → Home
 // 3. Saved session → Home directly
 
-import React, { useEffect } from 'react';
+import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { View, ActivityIndicator, Text, StyleSheet } from 'react-native';
 
@@ -49,6 +48,12 @@ import PaymentHistoryScreen from '../screens/PaymentHistoryScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
+const stackScreenOptions = {
+  headerShown: false,
+  animation: 'slide_from_right' as const,
+  contentStyle: { flex: 1, backgroundColor: '#f0f7f4' },
+};
+
 function TabNotificationIcon({ color, size }: { color: string; size: number }) {
   const { unreadCount } = useUnreadNotifications();
   return (
@@ -73,14 +78,19 @@ function AppTabs() {
         tabBarInactiveTintColor: '#9CA3AF',
         tabBarStyle: {
           backgroundColor: '#FFFFFF',
-          borderTopWidth: 1,
-          borderTopColor: '#E5E7EB',
-          paddingBottom: 8,
-          paddingTop: 8,
-          height: 65,
+          borderTopWidth: 0,
+          paddingBottom: 10,
+          paddingTop: 10,
+          height: 68,
+          shadowColor: '#0a3d2c',
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.06,
+          shadowRadius: 12,
+          elevation: 12,
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
+        tabBarLabelStyle: { fontSize: 11, fontWeight: '700', marginTop: 2 },
         headerShown: false,
+        sceneStyle: { flex: 1, backgroundColor: '#f0f7f4' },
       }}
     >
       <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} />, tabBarLabel: 'Home' }} />
@@ -101,7 +111,6 @@ function AppTabs() {
 }
 
 export default function AppNavigator() {
-  const navigation = useNavigation<any>();
   const { token, isLoading, isOtpVerified, pendingPhone, hasSeenOnboarding, user } = useAuth();
 
   const isAuthenticated = Boolean(token && isOtpVerified);
@@ -118,29 +127,8 @@ export default function AppNavigator() {
     return 'Login';
   };
 
-  const stackKey = isAuthenticated ? 'authenticated' : isAwaitingOtp ? 'otp' : 'guest';
-
-  useEffect(() => {
-    if (isLoading) return;
-
-    if (isAuthenticated) {
-      const role = (user?.role || '').toLowerCase();
-      const initialRouteName =
-        role === 'officer' || role === 'admin' ? 'WebPortal' : 'MainApp';
-      navigation.reset({
-        index: 0,
-        routes: [{ name: initialRouteName }],
-      });
-      return;
-    }
-
-    if (isAwaitingOtp && pendingPhone) {
-      navigation.reset({
-        index: 0,
-        routes: [{ name: 'OTPVerification', params: { phone: pendingPhone } }],
-      });
-    }
-  }, [isAuthenticated, isAwaitingOtp, pendingPhone, isLoading, navigation]);
+  // Keep a single guest stack so Register → OTP navigation is not reset mid-flow
+  const stackKey = isAuthenticated ? 'authenticated' : 'guest';
 
   if (isLoading) {
     return (
@@ -155,7 +143,7 @@ export default function AppNavigator() {
     <Stack.Navigator
       key={stackKey}
       initialRouteName={getInitialRoute()}
-      screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+      screenOptions={stackScreenOptions}
     >
       {!isAuthenticated ? (
         <>
@@ -170,6 +158,7 @@ export default function AppNavigator() {
             initialParams={pendingPhone ? { phone: pendingPhone } : undefined}
           />
           <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} />
+          <Stack.Screen name="MainApp" component={AppTabs} />
         </>
       ) : (
         <>

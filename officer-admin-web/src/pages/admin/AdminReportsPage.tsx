@@ -52,7 +52,7 @@ export default function AdminReportsPage() {
   return (
     <PortalLayout
       title="Reports & Analytics"
-      subtitle="Operational summaries, verification statistics, and audit exports (UC-26)."
+      subtitle="Operational summaries, verification statistics, and audit exports."
       nav={adminNav}
     >
       {error ? <p className="banner banner--error">{error}</p> : null}

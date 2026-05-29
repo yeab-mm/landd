@@ -16,6 +16,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { StackNavigationProp } from '@react-navigation/stack';
 import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // Global Components
 import { Button } from '../components/ui/Button';
@@ -27,6 +28,9 @@ type RootStackParamList = {
     AddLandListing: undefined;
     Marketplace: undefined;
     TermsAndConditions: { type: string };
+    MyRequests: undefined;
+    MainApp: undefined;
+    TrackRequest: { referenceNumber: string };
 };
 
 type AddLandListingScreenProp = StackNavigationProp<RootStackParamList, 'AddLandListing'>;
@@ -37,6 +41,7 @@ export default function AddLandListingScreen() {
     const [currentSection, setCurrentSection] = useState(0);
     const [loading, setLoading] = useState(false);
     const { token } = useAuth();
+    const [submittedRequest, setSubmittedRequest] = useState<any>(null);
 
     // Form State - Backend-ready structure
     const [formData, setFormData] = useState({
@@ -66,6 +71,17 @@ export default function AddLandListingScreen() {
         { title: 'Visuals & Description', icon: 'images' as const },
         { title: 'Review & Post', icon: 'cloud-upload' as const },
     ];
+
+    const calculateGovTax = (price: string, useType: string, transType: string) => {
+        const p = parseInt(price.replace(/[^0-9]/g, '')) || 0;
+        let rate = 0;
+        if (useType === 'Residential') {
+            rate = transType === 'For Sale' ? 0.05 : 0.025;
+        } else if (useType === 'Commercial') {
+            rate = transType === 'For Sale' ? 0.22 : 0.11;
+        }
+        return Math.round(p * rate);
+    };
 
 
     // ✅ Safe Plot Number Validation
@@ -119,14 +135,22 @@ export default function AddLandListingScreen() {
                 return;
             }
 
+            // Convert to base64 for backend upload
+            setLoading(true);
+            const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: 'base64' });
+            const mime = file.mimeType || mimeFromName(file.name || 'image.jpg');
+            const dataUrl = `data:${mime};base64,${base64}`;
+
             setFormData(prev => ({
                 ...prev,
-                images: [...prev.images, { name: file.name || 'Image', uri: file.uri }],
+                images: [...prev.images, { name: file.name || 'Image', uri: dataUrl }],
             }));
             Alert.alert('✓ Success', 'Image added successfully');
         } catch (error) {
             console.error('Upload error:', error);
             Alert.alert('Error', 'Could not access gallery. Please try again.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -149,16 +173,20 @@ export default function AddLandListingScreen() {
             const result = await DocumentPicker.getDocumentAsync({
                 type: ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'],
                 copyToCacheDirectory: true,
-                base64: true,
             });
             if (result.canceled || !result.assets || result.assets.length === 0) return;
+            
             const file = result.assets[0];
-            if (!file.base64) {
-                Alert.alert('Error', 'Could not read file for upload. Try another file.');
-                return;
+            if (!file.uri) {
+                throw new Error('No file URI returned from picker');
             }
+
+            setLoading(true);
+            // Read file as base64
+            const base64 = await FileSystem.readAsStringAsync(file.uri, { encoding: 'base64' });
             const mime = file.mimeType || mimeFromName(file.name || docName);
-            const dataUrl = `data:${mime};base64,${file.base64}`;
+            const dataUrl = `data:${mime};base64,${base64}`;
+            
             setFormData((prev) => ({
                 ...prev,
                 documents: {
@@ -166,9 +194,11 @@ export default function AddLandListingScreen() {
                     [docName]: { name: file.name || docName, uri: dataUrl },
                 },
             }));
-        } catch (error) {
+        } catch (error: any) {
             console.error('Document upload error:', error);
-            Alert.alert('Error', 'Could not select document. Please try again.');
+            Alert.alert('Selection Error', error.message || 'Could not access the selected file.');
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -190,6 +220,7 @@ export default function AddLandListingScreen() {
                 body: JSON.stringify({
                     title: formData.title,
                     price: formData.price,
+                    governmentTax: calculateGovTax(formData.price, formData.landUseType, formData.transactionType),
                     area: formData.area,
                     transactionType: formData.transactionType,
                     plotNumber: formData.plotNumber,
@@ -214,14 +245,7 @@ export default function AddLandListingScreen() {
             }
 
             const data = await response.json();
-
-            Alert.alert(
-                'Submitted for review',
-                data.message || 'Admin will validate your documents and forward to an officer. Your listing goes live after officer approval.',
-                [
-                    { text: 'OK', onPress: () => navigation.goBack() },
-                ]
-            );
+            setSubmittedRequest(data.request);
         } catch (error: any) {
             Alert.alert('Error', error.message || 'An error occurred while submitting');
             console.error('Submit error:', error);
@@ -243,7 +267,7 @@ export default function AddLandListingScreen() {
                 <Button
                     title="Continue"
                     onPress={() => goToSection(currentSection + 1)}
-                    icon="arrow-forward" as const
+                    icon={"arrow-forward" as const}
                     iconPosition="right"
                     className="px-8"
                     disabled={!isSectionValid(currentSection)}
@@ -253,13 +277,71 @@ export default function AddLandListingScreen() {
                     title="Submit for Review"
                     onPress={handleSubmit}
                     loading={loading}
-                    icon="checkmark-circle" as const
+                    icon={"checkmark-circle" as const}
                     className="px-8"
                     disabled={!isSectionValid(currentSection)}
                 />
             )}
         </View>
     );
+
+    if (submittedRequest) {
+        return (
+            <View className="flex-1 bg-white">
+                <StatusBar barStyle="dark-content" />
+                <View className="flex-1 items-center justify-center px-6">
+                    <View className="w-24 h-24 bg-emerald-100 rounded-full items-center justify-center mb-6">
+                        <Ionicons name="checkmark-circle" size={60} color="#10b981" />
+                    </View>
+                    <Text className="text-2xl font-bold text-gray-900 mb-2">Request Submitted!</Text>
+                    <Text className="text-gray-500 text-center mb-8">
+                        Your marketplace listing request has been submitted successfully with reference number:
+                        <Text className="text-emerald-700 font-bold"> {submittedRequest.referenceNumber}</Text>
+                    </Text>
+
+                    <View className="bg-emerald-50 p-6 rounded-3xl w-full mb-8 border border-emerald-100">
+                        <Text className="text-emerald-800 font-bold mb-2 text-center">Next Steps:</Text>
+                        <View className="gap-3">
+                            <View className="flex-row items-center">
+                                <View className="w-6 h-6 rounded-full bg-emerald-200 items-center justify-center mr-3">
+                                    <Text className="text-emerald-800 text-xs font-bold">1</Text>
+                                </View>
+                                <Text className="text-emerald-700 text-sm flex-1">Admin will validate your documents.</Text>
+                            </View>
+                            <View className="flex-row items-center">
+                                <View className="w-6 h-6 rounded-full bg-emerald-200 items-center justify-center mr-3">
+                                    <Text className="text-emerald-800 text-xs font-bold">2</Text>
+                                </View>
+                                <Text className="text-emerald-700 text-sm flex-1">Request is forwarded to an officer for plot check.</Text>
+                            </View>
+                            <View className="flex-row items-center">
+                                <View className="w-6 h-6 rounded-full bg-emerald-200 items-center justify-center mr-3">
+                                    <Text className="text-emerald-800 text-xs font-bold">3</Text>
+                                </View>
+                                <Text className="text-emerald-700 text-sm flex-1">Listing goes live once approved.</Text>
+                            </View>
+                        </View>
+                    </View>
+
+                    <View className="w-full gap-4">
+                        <Button
+                            title="Track Request"
+                            onPress={() => navigation.navigate('TrackRequest', { referenceNumber: submittedRequest.referenceNumber })}
+                            icon={"search" as const}
+                            className="bg-emerald-700 h-14"
+                        />
+                        <Button
+                            title="Back to Home"
+                            onPress={() => navigation.navigate('MainApp')}
+                            variant="ghost"
+                            textClassName="text-emerald-700 font-bold"
+                            icon={"home" as const}
+                        />
+                    </View>
+                </View>
+            </View>
+        );
+    }
 
     return (
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -327,6 +409,21 @@ export default function AddLandListingScreen() {
                                                 </View>
                                             </View>
                                             <View className="mt-4">
+                                                <Text className="text-gray-700 font-bold text-sm mb-2">Land Use Type *</Text>
+                                                <View className="flex-row gap-2">
+                                                    {['Residential', 'Commercial'].map(type => (
+                                                        <TouchableOpacity
+                                                            key={type}
+                                                            onPress={() => setFormData(p => ({ ...p, landUseType: type }))}
+                                                            className={`px-4 py-2 rounded-xl flex-1 items-center border ${formData.landUseType === type ? 'bg-[#125f43ff] border-[#125f43ff]' : 'bg-gray-100 border-gray-200'}`}
+                                                        >
+                                                            <Text className={`font-semibold ${formData.landUseType === type ? 'text-white' : 'text-gray-600'}`}>{type}</Text>
+                                                        </TouchableOpacity>
+                                                    ))}
+                                                </View>
+                                            </View>
+
+                                            <View className="mt-4">
                                                 <Text className="text-gray-700 font-bold text-sm mb-2">Transaction Type *</Text>
                                                 <View className="flex-row gap-2">
                                                     {['For Sale', 'For Rent'].map(type => (
@@ -340,6 +437,20 @@ export default function AddLandListingScreen() {
                                                     ))}
                                                 </View>
                                             </View>
+
+                                            {formData.price && (
+                                                <View className="mt-6 bg-emerald-50 p-4 rounded-2xl border border-emerald-100">
+                                                    <View className="flex-row justify-between items-center">
+                                                        <Text className="text-emerald-800 font-medium">Government Tax ({formData.landUseType === 'Residential' ? (formData.transactionType === 'For Sale' ? '5%' : '2.5%') : (formData.transactionType === 'For Sale' ? '22%' : '11%')})</Text>
+                                                        <Text className="text-emerald-900 font-bold text-lg">
+                                                            ETB {calculateGovTax(formData.price, formData.landUseType, formData.transactionType).toLocaleString()}
+                                                        </Text>
+                                                    </View>
+                                                    <Text className="text-emerald-600 text-[10px] mt-1">
+                                                        This amount is calculated for the government based on property type and transaction.
+                                                    </Text>
+                                                </View>
+                                            )}
                                         </View>
                                         {renderSectionControls()}
                                     </ScrollView>
@@ -469,6 +580,10 @@ export default function AddLandListingScreen() {
                                                 <View className="flex-row justify-between border-b border-gray-100 pb-2">
                                                     <Text className="text-gray-500">Price</Text>
                                                     <Text className="text-gray-800 font-bold">ETB {formData.price ? parseInt(formData.price).toLocaleString() : '-'}</Text>
+                                                </View>
+                                                <View className="flex-row justify-between border-b border-gray-100 pb-2">
+                                                    <Text className="text-gray-500">Gov. Tax</Text>
+                                                    <Text className="text-emerald-600 font-bold">ETB {formData.price ? calculateGovTax(formData.price, formData.landUseType, formData.transactionType).toLocaleString() : '-'}</Text>
                                                 </View>
                                                 <View className="flex-row justify-between border-b border-gray-100 pb-2">
                                                     <Text className="text-gray-500">Area</Text>

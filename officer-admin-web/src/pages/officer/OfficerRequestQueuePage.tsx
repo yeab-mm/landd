@@ -1,41 +1,35 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   apiFetch,
-  parseFormData,
   requestApplicant,
   type RequestRow,
 } from '../../api/client'
-import DocumentReviewModal from '../../components/DocumentReviewModal'
-import { EmptyState, Panel, StatusBadge } from '../../components/ui'
+import { EmptyState, Panel, StatCard, StatusBadge } from '../../components/ui'
 import { PortalLayout, officerNav } from '../../components/PortalLayout'
 import { useAuth } from '../../context/AuthContext'
+import { isForwardedToOfficer, isMarketplaceRequest, isOpenForOfficer } from '../../utils/requestWorkflow'
 
 type QueueKind = 'transfer' | 'service'
 
 const CONFIG: Record<
   QueueKind,
-  { title: string; subtitle: string; path: string; filter: (r: RequestRow) => boolean }
+  { title: string; subtitle: string; filter: (r: RequestRow) => boolean }
 > = {
   transfer: {
-    title: 'Transfer Requests',
-    subtitle: 'Review and process ownership transfer applications (UC-21, UC-22).',
-    path: '/officer/transfers',
+    title: 'Ownership transfers',
+    subtitle: 'Transfer applications forwarded by admin for final officer approval.',
     filter: (r) => r.type === 'Ownership Transfer',
   },
   service: {
-    title: 'Service Applications',
-    subtitle: 'Process land service applications such as subdivision and mutation (UC-23).',
-    path: '/officer/services',
+    title: 'Land services',
+    subtitle: 'Subdivision, mutation, zoning, and other services cleared by admin.',
     filter: (r) =>
       r.type !== 'Ownership Verification' &&
       r.type !== 'Ownership Transfer' &&
+      !isMarketplaceRequest(r) &&
       !r.type.toLowerCase().includes('registration'),
   },
-}
-
-function isOpenStatus(status: string) {
-  const s = (status || '').toLowerCase()
-  return !s.includes('approv') && !s.includes('reject')
 }
 
 export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
@@ -45,9 +39,6 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
-  const [reviewTarget, setReviewTarget] = useState<RequestRow | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [actionError, setActionError] = useState('')
 
   const load = useCallback(async () => {
     if (!token) return
@@ -55,7 +46,9 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
     setError('')
     try {
       const data = await apiFetch<{ requests: RequestRow[] }>('/requests', token)
-      setRequests((data.requests || []).filter(CONFIG[kind].filter))
+      setRequests(
+        (data.requests || []).filter((r) => cfg.filter(r) && isForwardedToOfficer(r)),
+      )
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load queue')
     } finally {
@@ -80,55 +73,20 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
     })
   }, [requests, search])
 
-  const submitUpdate = async (
-    requestId: string,
-    status: string,
-    docs: Record<string, boolean>,
-    notes: string,
-  ) => {
-    await apiFetch(`/requests/${requestId}`, token, {
-      method: 'PUT',
-      body: JSON.stringify({
-        status,
-        docValidation: { docs, notes: notes || undefined },
-      }),
-    })
-  }
-
-  const docAuth = (r: RequestRow) => {
-    const fd = parseFormData(r.formData)
-    return fd.docAuthenticity as { docs?: Record<string, boolean>; notes?: string } | undefined
-  }
-
-  const quickStatus = async (r: RequestRow, status: string) => {
-    const notes =
-      status === 'Rejected'
-        ? window.prompt('Enter rejection reason for the citizen:') || ''
-        : ''
-    if (status === 'Rejected' && !notes.trim()) return
-    setSubmitting(true)
-    setActionError('')
-    try {
-      await apiFetch(`/requests/${r.id}`, token, {
-        method: 'PUT',
-        body: JSON.stringify({ status, docValidation: { docs: {}, notes: notes || undefined } }),
-      })
-      await load()
-    } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'Update failed')
-    } finally {
-      setSubmitting(false)
-    }
-  }
+  const pending = requests.filter(isOpenForOfficer).length
 
   return (
     <PortalLayout title={cfg.title} subtitle={cfg.subtitle} nav={officerNav}>
       {error ? <p className="banner banner--error">{error}</p> : null}
-      {actionError ? <p className="banner banner--error">{actionError}</p> : null}
+
+      <div className="stat-grid">
+        <StatCard label="Awaiting officer" value={pending} tone="warning" />
+        <StatCard label="In queue" value={requests.length} tone="info" />
+      </div>
 
       <Panel
         title={cfg.title}
-        subtitle={`${filtered.length} application(s)`}
+        subtitle={`${filtered.length} admin-forwarded application(s)`}
         actions={
           <div className="toolbar">
             <input
@@ -147,7 +105,10 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
         {loading ? (
           <p className="muted">Loading…</p>
         ) : filtered.length === 0 ? (
-          <EmptyState title="Queue empty" message="No applications in this queue." />
+          <EmptyState
+            title="Queue empty"
+            message="Cases appear here after admin approves documents and forwards to you."
+          />
         ) : (
           <div className="table-wrap">
             <table className="data-table">
@@ -158,7 +119,7 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
                   <th>Applicant</th>
                   <th>Submitted</th>
                   <th>Status</th>
-                  <th>Actions</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -174,47 +135,9 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
                       <StatusBadge status={r.status} />
                     </td>
                     <td className="table-actions">
-                      {isOpenStatus(r.status) ? (
-                        <>
-                          <button
-                            type="button"
-                            className="btn btn--outline btn--sm"
-                            disabled={submitting}
-                            onClick={() => {
-                              setActionError('')
-                              setReviewTarget(r)
-                            }}
-                          >
-                            Validate docs
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--secondary btn--sm"
-                            disabled={submitting}
-                            onClick={() => quickStatus(r, 'Under Review')}
-                          >
-                            On hold
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--primary btn--sm"
-                            disabled={submitting}
-                            onClick={() => quickStatus(r, 'Approved')}
-                          >
-                            Approve
-                          </button>
-                          <button
-                            type="button"
-                            className="btn btn--danger btn--sm"
-                            disabled={submitting}
-                            onClick={() => quickStatus(r, 'Rejected')}
-                          >
-                            Reject
-                          </button>
-                        </>
-                      ) : (
-                        <span className="muted">Resolved</span>
-                      )}
+                      <Link to={`/officer/requests/${r.id}`} className="btn btn--primary btn--sm">
+                        {isOpenForOfficer(r) ? 'Review & decide' : 'View case'}
+                      </Link>
                     </td>
                   </tr>
                 ))}
@@ -223,60 +146,6 @@ export default function OfficerRequestQueuePage({ kind }: { kind: QueueKind }) {
           </div>
         )}
       </Panel>
-
-      <DocumentReviewModal
-        open={!!reviewTarget}
-        applicant={reviewTarget ? requestApplicant(reviewTarget) : ''}
-        requestType={reviewTarget?.type || ''}
-        referenceNumber={reviewTarget?.referenceNumber || ''}
-        initialDocs={reviewTarget ? docAuth(reviewTarget)?.docs : undefined}
-        initialNotes={reviewTarget ? docAuth(reviewTarget)?.notes || '' : ''}
-        submitting={submitting}
-        onClose={() => !submitting && setReviewTarget(null)}
-        onSaveValidation={async (docs, notes) => {
-          if (!reviewTarget) return
-          setSubmitting(true)
-          try {
-            await submitUpdate(reviewTarget.id, 'Document Validation', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Save failed')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-        onApprove={async (docs, notes) => {
-          if (!reviewTarget) return
-          setSubmitting(true)
-          try {
-            await submitUpdate(reviewTarget.id, 'Approved', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Approve failed')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-        onReject={async (docs, notes) => {
-          if (!reviewTarget) return
-          if (!notes.trim()) {
-            setActionError('Notes required for rejection.')
-            return
-          }
-          setSubmitting(true)
-          try {
-            await submitUpdate(reviewTarget.id, 'Rejected', docs, notes)
-            setReviewTarget(null)
-            await load()
-          } catch (e) {
-            setActionError(e instanceof Error ? e.message : 'Reject failed')
-          } finally {
-            setSubmitting(false)
-          }
-        }}
-      />
     </PortalLayout>
   )
 }

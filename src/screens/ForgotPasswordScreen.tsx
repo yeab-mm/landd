@@ -17,14 +17,10 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StackNavigationProp } from '@react-navigation/stack';
 
-// Components
-import { Button } from '../components/ui/Button';
-
-// ✅ FIXED: Navigation types with proper identifier param
 type RootStackParamList = {
     ForgotPassword: undefined;
     Login: undefined;
-    OTPVerification: { identifier: string; action: 'reset'; method: 'email' | 'phone' | 'fayda' };
+    OTPVerification: { phone: string; action: 'reset' };
 };
 
 type ForgotPasswordScreenProp = StackNavigationProp<RootStackParamList, 'ForgotPassword'>;
@@ -34,6 +30,7 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
     const [identifier, setIdentifier] = useState('');
     const [loading, setLoading] = useState(false);
     const [errors, setErrors] = useState<{ identifier?: string }>({});
+    const [step, setStep] = useState<'select' | 'sent'>('select');
 
     // ✅ Validation Functions
     const validateEmail = (email: string) => {
@@ -57,9 +54,8 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
 
         // Validate input
         if (!identifier.trim()) {
-            const errorMsg = `Please enter your ${getRecoveryConfig().label}`;
-            setErrors({ identifier: errorMsg });
-            Alert.alert('Validation Error', errorMsg);
+            setErrors({ identifier: `Please enter your ${getRecoveryConfig().label}` });
+            Alert.alert('Validation Error', `Please enter your ${getRecoveryConfig().label}`);
             return;
         }
 
@@ -87,11 +83,10 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
             // ✅ Simulate API call
             await new Promise(resolve => setTimeout(resolve, 1500));
 
-            // ✅ FIXED: Pass proper params to OTPVerification
+            // ✅ Success - Navigate to OTP Verification
             navigation.navigate('OTPVerification', {
-                identifier: identifier.trim(),
-                action: 'reset',
-                method: recoveryMethod
+                phone: identifier.replace(/\s/g, ''),
+                action: 'reset'
             });
 
         } catch (error) {
@@ -157,7 +152,6 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
                                 onPress={() => navigation.goBack()}
                                 className="mb-8 w-10 h-10 rounded-full bg-white/10 items-center justify-center"
                                 activeOpacity={0.7}
-                                accessibilityLabel="Go back to login"
                             >
                                 <Ionicons name="arrow-back" size={20} color="white" />
                             </TouchableOpacity>
@@ -193,15 +187,16 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
                                                 setIdentifier('');
                                                 setErrors({});
                                             }}
-                                            className={`flex-1 py-2.5 rounded-lg items-center ${recoveryMethod === method ? 'bg-white' : ''}`}
-                                            accessibilityLabel={`Use ${method} for recovery`}
+                                            className={`flex-1 py-2.5 rounded-lg items-center ${recoveryMethod === method ? 'bg-white' : ''
+                                                }`}
                                         >
                                             <Ionicons
                                                 name={method === 'email' ? 'mail' : method === 'phone' ? 'phone-portrait' : 'card'}
                                                 size={18}
                                                 color={recoveryMethod === method ? '#125f43ff' : 'white'}
                                             />
-                                            <Text className={`text-xs font-semibold mt-1 ${recoveryMethod === method ? 'text-[#125f43ff]' : 'text-white/70'}`}>
+                                            <Text className={`text-xs font-semibold mt-1 ${recoveryMethod === method ? 'text-[#125f43ff]' : 'text-white/70'
+                                                }`}>
                                                 {method === 'email' ? 'Email' : method === 'phone' ? 'Phone' : 'Fayda'}
                                             </Text>
                                         </TouchableOpacity>
@@ -217,13 +212,14 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
                                 </View>
                             </View>
 
-                            {/* Identifier Input - ✅ FIXED: py-1 → py-3.5 */}
+                            {/* Identifier Input */}
                             <View className="mb-6">
                                 <Text className="text-white/90 text-sm mb-2 ml-1">{config.label} *</Text>
-                                <View className={`bg-white/10 rounded-xl px-5 py-3.5 flex-row items-center border ${errors.identifier ? 'border-red-400' : 'border-white/30'}`}>
+                                <View className={`bg-white/10 rounded-xl px-5 py-1 flex-row items-center border ${errors.identifier ? 'border-red-400' : 'border-white/30'
+                                    }`}>
                                     <Ionicons name={config.icon} size={22} color="white" />
                                     <TextInput
-                                        className="flex-1 text-white text-base ml-4"  // ✅ FIXED: text-lg → text-base for consistency
+                                        className="flex-1 text-white text-lg ml-4"
                                         placeholder={config.placeholder}
                                         placeholderTextColor="rgba(255,255,255,0.6)"
                                         value={identifier}
@@ -234,26 +230,30 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
                                         keyboardType={config.keyboardType}
                                         autoCapitalize="none"
                                         autoComplete={recoveryMethod === 'email' ? 'email' : recoveryMethod === 'phone' ? 'tel' : undefined}
-                                        accessibilityLabel={`Enter your ${config.label.toLowerCase()}`}
                                     />
                                 </View>
                                 {errors.identifier && (
-                                    <Text className="text-red-400 text-xs mt-1 ml-1" accessibilityLiveRegion="polite">{errors.identifier}</Text>
+                                    <Text className="text-red-400 text-xs mt-1 ml-1">{errors.identifier}</Text>
                                 )}
                             </View>
 
-                            {/* Send Reset Code Button - ✅ FIXED: Ensure Button supports variant or use explicit classes */}
-                            <Button
-                                title="Send Reset Code"
+                            {/* Send Reset Code Button */}
+                            <TouchableOpacity
                                 onPress={handleSendResetCode}
-                                loading={loading}
-                                // ✅ If Button doesn't support variant="white", use className instead:
-                                className="bg-white mb-6"
-                                textClassName="text-[#125f43ff]"
-                                icon="paper-plane" as const
-                                disabled={!identifier.trim() || loading}
-                                accessibilityLabel="Send password reset code"
-                            />
+                                disabled={loading}
+                                className={`py-4 rounded-xl items-center shadow-lg mb-6 ${loading ? 'bg-white/50' : 'bg-white'
+                                    }`}
+                                activeOpacity={0.8}
+                            >
+                                {loading ? (
+                                    <ActivityIndicator size="small" color="#125f43ff" />
+                                ) : (
+                                    <View className="flex-row items-center">
+                                        <Ionicons name="paper-plane" size={20} color="#125f43ff" />
+                                        <Text className="text-[#125f43ff] font-bold text-lg ml-2">Send Reset Code</Text>
+                                    </View>
+                                )}
+                            </TouchableOpacity>
 
                             {/* Security Notice */}
                             <View className="bg-yellow-500/20 rounded-xl p-4 border border-yellow-500/30 mb-8">
@@ -272,10 +272,7 @@ export default function ForgotPasswordScreen({ navigation }: { navigation: Forgo
                             {/* Back to Login */}
                             <View className="flex-row justify-center items-center pb-8">
                                 <Text className="text-white/70 text-sm">Remember your password? </Text>
-                                <TouchableOpacity 
-                                    onPress={() => navigation.navigate('Login')}
-                                    accessibilityLabel="Go back to sign in"
-                                >
+                                <TouchableOpacity onPress={() => navigation.navigate('Login')}>
                                     <Text className="text-white font-bold text-sm">Sign In</Text>
                                 </TouchableOpacity>
                             </View>

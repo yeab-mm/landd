@@ -46,7 +46,7 @@ export default function AdminPaymentsPage() {
   return (
     <PortalLayout
       title="Payments & Transactions"
-      subtitle="Monitor financial transactions, revenue, and payment gateway activity (UC-25)."
+      subtitle="Monitor financial transactions and revenue."
       nav={adminNav}
     >
       {error ? <p className="banner banner--error">{error}</p> : null}

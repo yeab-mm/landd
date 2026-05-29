@@ -65,6 +65,14 @@ const getDevApiHost = (): string => {
 };
 
 const getApiBaseUrl = (): string => {
+  // Physical device: use the same LAN IP as Expo Metro (exp://HOST:8081)
+  if (__DEV__) {
+    const metroHost = resolveMetroHost();
+    if (metroHost) {
+      return `http://${metroHost}:${API_PORT}/api`;
+    }
+  }
+
   const envUrl = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, '');
   if (envUrl) {
     return envUrl;

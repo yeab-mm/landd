@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 
-type NavItem = { to: string; label: string; end?: boolean }
+type NavItem = { to: string; label: string; icon: string; end?: boolean }
 
 export function PortalLayout({
   title,
@@ -18,12 +18,15 @@ export function PortalLayout({
 
   return (
     <div className="portal">
+      <div className="ambient-light ambient-light--1"></div>
+      <div className="ambient-light ambient-light--2"></div>
+      
       <aside className="sidebar">
         <div className="sidebar__brand">
-          <span className="sidebar__logo">DL</span>
+          <span className="sidebar__logo">LP</span>
           <div>
-            <strong>Digital Land Portal</strong>
-            <small>{title}</small>
+            <strong>LAND PORTAL</strong>
+            <small>FEDERAL AUTHORITY</small>
           </div>
         </div>
         <nav className="sidebar__nav">
@@ -34,17 +37,18 @@ export function PortalLayout({
               end={item.end}
               className={({ isActive }) => (isActive ? 'nav-link active' : 'nav-link')}
             >
-              {item.label}
+              <span className="nav-icon">{item.icon}</span>
+              <span className="nav-label">{item.label}</span>
             </NavLink>
           ))}
         </nav>
         <div className="sidebar__footer">
           <div className="sidebar__user">
             <strong>{user?.fullName}</strong>
-            <span>{user?.email || user?.role}</span>
+            <span>{user?.role}</span>
           </div>
-          <button type="button" className="btn btn--ghost btn--sm" onClick={logout}>
-            Sign out
+          <button type="button" className="btn btn--outline btn--sm" onClick={logout} style={{marginTop: '1.5rem', width: '100%', borderColor: 'rgba(0, 245, 160, 0.2)', color: 'var(--primary)'}}>
+            TERMINATE SESSION
           </button>
         </div>
       </aside>
@@ -52,27 +56,31 @@ export function PortalLayout({
         <header className="topbar">
           <div>
             <h1>{title}</h1>
-            <p>{subtitle}</p>
+            <p className="muted">{subtitle}</p>
           </div>
         </header>
-        <main className="portal__content">{children}</main>
+        <main className="portal__content animate-fade">
+            {children}
+        </main>
       </div>
     </div>
   )
 }
 
 export const officerNav: NavItem[] = [
-  { to: '/officer', label: 'Overview', end: true },
-  { to: '/officer/verification', label: 'Verification Queue' },
-  { to: '/officer/transfers', label: 'Transfer Requests' },
-  { to: '/officer/services', label: 'Service Applications' },
+  { to: '/officer', label: 'Monitor', icon: '📊', end: true },
+  { to: '/officer/marketplace', label: 'Marketplace', icon: '🏷️' },
+  { to: '/officer/verification', label: 'Field Verification', icon: '🔍' },
+  { to: '/officer/transfers', label: 'Ownership Transfers', icon: '🔄' },
+  { to: '/officer/services', label: 'Land Services', icon: '📋' },
 ]
 
 export const adminNav: NavItem[] = [
-  { to: '/admin', label: 'Overview', end: true },
-  { to: '/admin/users', label: 'User Management' },
-  { to: '/admin/marketplace', label: 'Marketplace Monitor' },
-  { to: '/admin/payments', label: 'Payments' },
-  { to: '/admin/reports', label: 'Reports & Audit' },
-  { to: '/admin/settings', label: 'System Configuration' },
+  { to: '/admin', label: 'Command Center', icon: '🏰', end: true },
+  { to: '/admin/requests', label: 'Service Triage', icon: '📥' },
+  { to: '/admin/users', label: 'Personnel & Roles', icon: '👥' },
+  { to: '/admin/marketplace', label: 'Marketplace', icon: '🏘️' },
+  { to: '/admin/payments', label: 'Financials', icon: '💳' },
+  { to: '/admin/reports', label: 'Audit & Reports', icon: '📜' },
+  { to: '/admin/settings', label: 'System Config', icon: '⚙️' },
 ]

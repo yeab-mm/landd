@@ -69,9 +69,11 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) => {
 });
 
 httpServer.listen(PORT, '0.0.0.0', () => {
+  const dbOk = Boolean(process.env.DATABASE_URL);
   console.log('🚀 Land Portal API running on http://localhost:' + PORT);
   console.log('🔗 Also accessible at: http://0.0.0.0:' + PORT);
   console.log('💬 Socket.IO enabled for live marketplace chat');
+  console.log(dbOk ? '✅ DATABASE_URL loaded' : '❌ DATABASE_URL missing — copy backend/.env.example to backend/.env');
 });
 
 export default app;

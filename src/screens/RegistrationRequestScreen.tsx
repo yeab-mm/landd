@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,9 +10,10 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
+    TouchableWithoutFeedback,
     Keyboard,
     Modal,
-    TouchableWithoutFeedback
+    Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,7 +22,11 @@ import { useNavigation } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api/config';
+import { submitServiceRequest } from '../api/requests';
+import { buildRegistrationPayload } from '../utils/serviceRequestPayload';
+import { missingRequiredDocs } from '../utils/documentUpload';
+import { getRequiredDocs } from '../constants/documentRequirements';
+import { SubmitSuccessView } from '../components/forms/SubmitSuccessView';
 
 type RootStackParamList = {
     RegistrationRequest: undefined;
@@ -205,9 +210,10 @@ const PhotoUploadField = ({
 
 export default function RegistrationRequestScreen() {
     const navigation = useNavigation<RegistrationRequestScreenProp>();
-    const { user, token } = useAuth();
+    const { token } = useAuth();
     const scrollViewRef = useRef<ScrollView>(null);
     const [currentSection, setCurrentSection] = useState(0);
+    const [submittedRequest, setSubmittedRequest] = useState<{ referenceNumber: string } | null>(null);
 
     // Form State
     const [formData, setFormData] = useState({
@@ -219,34 +225,34 @@ export default function RegistrationRequestScreen() {
 
         // Section 1: Applicant Information
         applicantInfo: {
-            fullName: '',
-            nationalId: '',
-            kebeleIdFront: null as any,
-            kebeleIdBack: null as any,
-            applicantPhoto: null as any,
+            fullName: 'Abebe Gizaw',
+            nationalId: '1234 5678 9012 3456',
+            kebeleIdFront: null,
+            kebeleIdBack: null,
+            applicantPhoto: null,
             maritalStatus: '', // 'single', 'married', 'divorced', 'widowed'
             spouseName: '',
             spouseNationalId: '',
-            spouseKebeleId: null as any,
+            spouseKebeleId: null,
             spouseConsent: false,
             relationshipToLand: '', // 'owner', 'representative', 'heir', 'co-owner', 'guardian'
             ownerName: '', // if representative
             ownerNationalId: '', // if representative
-            authorizationDocument: null as any, // if representative
-            phone: '',
-            email: '',
-            address: '',
+            authorizationDocument: null, // if representative
+            phone: '+251 911 234 567',
+            email: 'abebe@example.com',
+            address: 'Bahir Dar, Kebele 03',
         },
 
         // Section 2: Land Information
         landInfo: {
             plotNumber: '',
             previousCertificateNumber: '',
-            previousCertificate: null as any,
+            previousCertificate: null,
             previousOwnerName: '',
-            transferDocument: null as any,
+            transferDocument: null,
             location: { region: '', zone: '', wereda: '', kebele: '' },
-            coordinates: { latitude: null as any, longitude: null as any },
+            coordinates: { latitude: null, longitude: null },
             landSize: '',
             landSizeUnit: 'm²',
             landUseType: '',
@@ -257,32 +263,32 @@ export default function RegistrationRequestScreen() {
         // Section 3: Acquisition-Specific Documents
         acquisitionDocuments: {
             // Allocation
-            allocationLetter: null as any,
-            governmentApproval: null as any,
-            allocationPaymentReceipt: null as any,
+            allocationLetter: null,
+            governmentApproval: null,
+            allocationPaymentReceipt: null,
             // Bidding
-            biddingWinCertificate: null as any,
-            biddingPaymentReceipt: null as any,
-            auctionAnnouncement: null as any,
+            biddingWinCertificate: null,
+            biddingPaymentReceipt: null,
+            auctionAnnouncement: null,
             // Inheritance
-            deathCertificate: null as any,
-            inheritanceCourtDocument: null as any,
-            familyAgreement: null as any,
-            heirList: null as any,
+            deathCertificate: null,
+            inheritanceCourtDocument: null,
+            familyAgreement: null,
+            heirList: null,
             // Gift
-            giftAgreement: null as any,
-            donorOwnershipCertificate: null as any,
-            donorIdCopy: null as any,
+            giftAgreement: null,
+            donorOwnershipCertificate: null,
+            donorIdCopy: null,
         },
 
         // Section 4: Common Documents
         commonDocuments: {
-            nationalIdCopy: null as any, // Auto from profile
-            surveyMap: null as any,
-            landPhotos: [null as any, null as any, null as any, null as any], // N, S, E, W
+            nationalIdCopy: null, // Auto from profile
+            surveyMap: null,
+            landPhotos: [null, null, null, null], // N, S, E, W
             witnesses: [
-                { name: '', phone: '', idCopy: null as any, statement: null as any },
-                { name: '', phone: '', idCopy: null as any, statement: null as any },
+                { name: '', phone: '', idCopy: null, statement: null },
+                { name: '', phone: '', idCopy: null, statement: null },
             ],
         },
 
@@ -292,25 +298,8 @@ export default function RegistrationRequestScreen() {
         acceptDeclaration3: false,
     });
 
-    useEffect(() => {
-        if (user) {
-            setFormData(prev => ({
-                ...prev,
-                applicantInfo: {
-                    ...prev.applicantInfo,
-                    fullName: user.fullName || '',
-                    nationalId: user.faydaId || '',
-                    phone: user.phone || '',
-                    email: user.email || '',
-                }
-            }));
-        }
-    }, [user]);
-
     const [loading, setLoading] = useState(false);
     const [locationLoading, setLocationLoading] = useState(false);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
-    const [successRefNum, setSuccessRefNum] = useState('');
 
     // Section Titles
     const sections = [
@@ -323,6 +312,7 @@ export default function RegistrationRequestScreen() {
         { title: 'Declaration', icon: 'shield-checkmark', required: true },
     ];
 
+    const CARD_WIDTH = Dimensions.get('window').width;
 
     // ✅ Get available zones/weeredas/kebeles
     const getAvailableZones = () => {
@@ -450,10 +440,6 @@ export default function RegistrationRequestScreen() {
 
     // ✅ Validation Functions
     const validateSection = (sectionIndex: number) => {
-        const missingDocs: string[] = [];
-        const addIfMissing = (label: string, value: any) => {
-            if (!value) missingDocs.push(label);
-        };
         switch (sectionIndex) {
             case 0: // Acquisition Type
                 if (!formData.acquisitionType) {
@@ -480,27 +466,6 @@ export default function RegistrationRequestScreen() {
                     Alert.alert('Error', 'Please enter spouse name');
                     return false;
                 }
-
-                // Required identity documents
-                addIfMissing('Kebele ID (Front)', formData.applicantInfo.kebeleIdFront);
-                addIfMissing('Kebele ID (Back)', formData.applicantInfo.kebeleIdBack);
-                addIfMissing('Applicant photo', formData.applicantInfo.applicantPhoto);
-
-                if (formData.applicantInfo.maritalStatus === 'married') {
-                    addIfMissing('Spouse National ID', formData.applicantInfo.spouseNationalId);
-                    addIfMissing('Spouse Kebele ID copy', formData.applicantInfo.spouseKebeleId);
-                }
-
-                if (formData.applicantInfo.relationshipToLand === 'representative') {
-                    addIfMissing('Owner name', formData.applicantInfo.ownerName?.trim());
-                    addIfMissing('Owner national ID', formData.applicantInfo.ownerNationalId?.trim());
-                    addIfMissing('Authorization document', formData.applicantInfo.authorizationDocument);
-                }
-
-                if (missingDocs.length) {
-                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
-                    return false;
-                }
                 break;
             case 3: // Land Information
                 if (!formData.landInfo.landSize || parseFloat(formData.landInfo.landSize) <= 0) {
@@ -515,65 +480,10 @@ export default function RegistrationRequestScreen() {
                     Alert.alert('Error', 'Please select complete location');
                     return false;
                 }
-
-                // If previously registered, require prior certificate / transfer docs
-                if (formData.isPreviouslyRegistered === 'yes') {
-                    addIfMissing('Previous certificate (scan/photo)', formData.landInfo.previousCertificate);
-                    addIfMissing('Previous certificate number', formData.landInfo.previousCertificateNumber?.trim());
-                }
-                if (missingDocs.length) {
-                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
-                    return false;
-                }
-                break;
-            case 4: // Acquisition-Specific Documents
-                // Require docs based on acquisition type
-                if (formData.acquisitionType === 'allocation') {
-                    addIfMissing('Allocation letter', formData.acquisitionDocuments.allocationLetter);
-                    addIfMissing('Government approval', formData.acquisitionDocuments.governmentApproval);
-                    addIfMissing('Allocation payment receipt', formData.acquisitionDocuments.allocationPaymentReceipt);
-                } else if (formData.acquisitionType === 'bidding') {
-                    addIfMissing('Bidding win certificate', formData.acquisitionDocuments.biddingWinCertificate);
-                    addIfMissing('Bidding payment receipt', formData.acquisitionDocuments.biddingPaymentReceipt);
-                    addIfMissing('Auction announcement', formData.acquisitionDocuments.auctionAnnouncement);
-                } else if (formData.acquisitionType === 'inheritance') {
-                    addIfMissing('Death certificate', formData.acquisitionDocuments.deathCertificate);
-                    addIfMissing('Inheritance court document', formData.acquisitionDocuments.inheritanceCourtDocument);
-                    addIfMissing('Family agreement', formData.acquisitionDocuments.familyAgreement);
-                    addIfMissing('Heir list', formData.acquisitionDocuments.heirList);
-                } else if (formData.acquisitionType === 'gift') {
-                    addIfMissing('Gift agreement', formData.acquisitionDocuments.giftAgreement);
-                    addIfMissing('Donor ownership certificate', formData.acquisitionDocuments.donorOwnershipCertificate);
-                    addIfMissing('Donor ID copy', formData.acquisitionDocuments.donorIdCopy);
-                }
-
-                if (missingDocs.length) {
-                    Alert.alert('Missing documents', `Please upload:\n\n• ${missingDocs.join('\n• ')}`);
-                    return false;
-                }
                 break;
             case 5: // Common Documents
                 if (!formData.commonDocuments.surveyMap) {
                     Alert.alert('Error', 'Survey Map is required');
-                    return false;
-                }
-
-                // Require 4 land photos (N/S/E/W)
-                const photos = formData.commonDocuments.landPhotos || [];
-                const missingPhotoCount = photos.filter((p: any) => !p).length;
-                if (missingPhotoCount > 0) {
-                    Alert.alert('Missing photos', 'Please upload all 4 land photos (North, South, East, West).');
-                    return false;
-                }
-
-                // Witnesses: require at least 2 complete witnesses
-                const witnesses = formData.commonDocuments.witnesses || [];
-                const completeWitnesses = witnesses.filter((w: any) => w?.name?.trim() && w?.phone?.trim() && w?.idCopy && w?.statement);
-                if (completeWitnesses.length < 2) {
-                    Alert.alert(
-                        'Missing witness documents',
-                        'Please provide at least 2 witnesses with name, phone, ID copy, and signed statement.'
-                    );
                     return false;
                 }
                 break;
@@ -585,6 +495,21 @@ export default function RegistrationRequestScreen() {
                 break;
         }
         return true;
+    };
+
+    const isSectionValid = (sectionIndex: number) => {
+        switch (sectionIndex) {
+            case 0: return !!formData.acquisitionType;
+            case 1: return !!formData.isPreviouslyRegistered;
+            case 2: 
+                return !!formData.applicantInfo.relationshipToLand && !!formData.applicantInfo.maritalStatus && !(formData.applicantInfo.maritalStatus === 'married' && !formData.applicantInfo.spouseName);
+            case 3: 
+                return !!formData.landInfo.landSize && parseFloat(formData.landInfo.landSize) > 0 && !!formData.landInfo.landUseType && !!formData.landInfo.location.kebele;
+            case 4: return true;
+            case 5: return !!formData.commonDocuments.surveyMap;
+            case 6: return !!formData.acceptDeclaration1 && !!formData.acceptDeclaration2 && !!formData.acceptDeclaration3;
+            default: return true;
+        }
     };
 
     // ✅ Navigate to Section
@@ -605,85 +530,56 @@ export default function RegistrationRequestScreen() {
         }
     };
 
-    // Handle Submit
     const handleSubmit = async () => {
-        // Validate all sections (including docs) before submit
-        for (const idx of [0, 1, 2, 3, 4, 5, 6]) {
-            if (!validateSection(idx)) return;
+        if (!validateSection(6)) return;
+        if (!token) {
+            Alert.alert('Login required', 'Please sign in to submit this request.');
+            return;
         }
 
         setLoading(true);
         try {
-            const response = await fetch(`${API_URL}/requests`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    type: 'Land Registration',
-                    plotNumber: formData.landInfo.plotNumber || `PLOT-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`,
-                    region: formData.landInfo.location.region,
-                    zone: formData.landInfo.location.zone,
-                    wereda: formData.landInfo.location.wereda,
-                    kebele: formData.landInfo.location.kebele,
-                    landSize: formData.landInfo.landSize,
-                    landUseType: formData.landInfo.landUseType,
-                    metadata: {
-                        acquisitionType: formData.acquisitionType,
-                        isPreviouslyRegistered: formData.isPreviouslyRegistered,
-                        applicantInfo: {
-                            fullName: formData.applicantInfo.fullName,
-                            nationalId: formData.applicantInfo.nationalId,
-                            kebeleIdFront: formData.applicantInfo.kebeleIdFront,
-                            kebeleIdBack: formData.applicantInfo.kebeleIdBack,
-                            applicantPhoto: formData.applicantInfo.applicantPhoto,
-                            maritalStatus: formData.applicantInfo.maritalStatus,
-                            spouseName: formData.applicantInfo.spouseName,
-                            spouseNationalId: formData.applicantInfo.spouseNationalId,
-                            spouseKebeleId: formData.applicantInfo.spouseKebeleId,
-                            relationshipToLand: formData.applicantInfo.relationshipToLand,
-                            ownerName: formData.applicantInfo.ownerName,
-                            ownerNationalId: formData.applicantInfo.ownerNationalId,
-                            authorizationDocument: formData.applicantInfo.authorizationDocument,
-                            phone: formData.applicantInfo.phone,
-                            email: formData.applicantInfo.email,
-                            address: formData.applicantInfo.address
-                        },
-                        landInfo: {
-                            previousCertificateNumber: formData.landInfo.previousCertificateNumber,
-                            previousOwnerName: formData.landInfo.previousOwnerName,
-                            previousCertificate: formData.landInfo.previousCertificate,
-                            transferDocument: formData.landInfo.transferDocument,
-                            landStatus: formData.landInfo.landStatus,
-                            boundaries: formData.landInfo.boundaries
-                        },
-                        acquisitionDocuments: formData.acquisitionDocuments,
-                        commonDocuments: formData.commonDocuments,
-                    }
-                })
-            });
-
-            const data = await response.json();
-            if (response.ok) {
-                const refNum = data.request?.referenceNumber || `REG-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-                setSuccessRefNum(refNum);
-                setShowSuccessModal(true);
-            } else {
-                Alert.alert('Error', data.error || 'Submission failed');
+            const payload = await buildRegistrationPayload(formData);
+            const missing = missingRequiredDocs(
+                getRequiredDocs('Registration Request'),
+                payload.documents
+            );
+            if (missing.length > 0) {
+                Alert.alert('Missing documents', `Please upload: ${missing.join(', ')}`);
+                return;
             }
-        } catch (error) {
-            Alert.alert('Error', 'Network error. Please try again.');
+
+            const data = await submitServiceRequest(token, payload.type, payload);
+            setSubmittedRequest({ referenceNumber: data.request.referenceNumber });
+        } catch (error: unknown) {
+            Alert.alert('Error', error instanceof Error ? error.message : 'Submission failed');
         } finally {
             setLoading(false);
         }
     };
 
+    if (submittedRequest) {
+        return (
+            <SubmitSuccessView
+                title="Registration submitted"
+                subtitle="Your land registration request was received."
+                referenceNumber={submittedRequest.referenceNumber}
+                onTrack={() =>
+                    navigation.navigate('RequestDetail', {
+                        referenceNumber: submittedRequest.referenceNumber,
+                    })
+                }
+                onHome={() => navigation.navigate('MainApp')}
+            />
+        );
+    }
+
     // ✅ Render Section Card
     const renderSectionCard = (section: any, index: number) => (
         <ScrollView
             key={index}
-            className="w-full px-6"
+            className="px-6"
+            style={{ width: CARD_WIDTH }}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 20 }}
@@ -738,7 +634,8 @@ export default function RegistrationRequestScreen() {
                 {currentSection < sections.length - 1 ? (
                     <TouchableOpacity
                         onPress={handleContinue}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={!isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${!isSectionValid(currentSection) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         <Text className="text-white text-base font-bold mr-2">Continue</Text>
                         <Ionicons name="arrow-forward" size={20} color="white" />
@@ -746,8 +643,8 @@ export default function RegistrationRequestScreen() {
                 ) : (
                     <TouchableOpacity
                         onPress={handleSubmit}
-                        disabled={loading}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={loading || !isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${(loading || !isSectionValid(currentSection)) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         {loading ? (
                             <ActivityIndicator size="small" color="white" />
@@ -1519,145 +1416,12 @@ export default function RegistrationRequestScreen() {
                             </Text>
                         </View>
 
-                        {/* Active Section Card Container */}
-                        <View className="flex-1 w-full">
+                        {/* Active Section Card */}
+                        <View className="flex-1 w-full items-center">
                             {renderSectionCard(sections[currentSection], currentSection)}
                         </View>
                     </LinearGradient>
                 </View>
-
-                {/* Premium Success Modal */}
-                <Modal
-                    visible={showSuccessModal}
-                    transparent={true}
-                    animationType="fade"
-                    statusBarTranslucent
-                    onRequestClose={() => setShowSuccessModal(false)}
-                >
-                    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-                        <View className="bg-white rounded-3xl p-6 w-full max-w-md items-center shadow-2xl">
-                            {/* Checked Animated Ring */}
-                            <View className="w-20 h-20 bg-green-50 rounded-full items-center justify-center mb-4 border-4 border-green-100">
-                                <Ionicons name="checkmark-circle" size={54} color="#125f43" />
-                            </View>
-                            
-                            {/* Title */}
-                            <Text className="text-xl font-bold text-gray-800 text-center mb-1">
-                                Request Submitted!
-                            </Text>
-                            <Text className="text-xs text-gray-400 text-center mb-6">
-                                ማመልከቻዎ በተሳካ ሁኔታ ገብቷል!
-                            </Text>
-
-                            {/* Info Box */}
-                            <View className="bg-gray-50 rounded-2xl p-4 w-full mb-6 border border-gray-100">
-                                <View className="flex-row justify-between items-center mb-2">
-                                    <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Reference Number</Text>
-                                    <Text className="text-[10px] text-gray-400 font-medium">የማጣቀሻ ቁጥር</Text>
-                                </View>
-                                <View className="bg-white border border-gray-100 rounded-xl p-3 items-center flex-row justify-between mb-4">
-                                    <Text className="font-mono text-base font-bold text-gray-800 tracking-wider">
-                                        {successRefNum}
-                                    </Text>
-                                    <TouchableOpacity 
-                                        onPress={() => {
-                                            Alert.alert('Copied', 'Reference number copied to clipboard!');
-                                        }}
-                                        className="p-1.5 bg-gray-100 rounded-lg"
-                                    >
-                                        <Ionicons name="copy-outline" size={16} color="#4B5563" />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View className="flex-row items-center justify-between border-t border-gray-100 pt-3">
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="time-outline" size={16} color="#6B7280" />
-                                        <Text className="text-xs text-gray-600 font-medium ml-1.5">Estimated Processing</Text>
-                                    </View>
-                                    <Text className="text-xs font-bold text-[#125f43ff]">7-14 Business Days</Text>
-                                </View>
-                            </View>
-
-                            {/* CTA Actions */}
-                            <View className="w-full gap-3">
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setShowSuccessModal(false);
-                                        navigation.navigate('RequestDetail', { referenceNumber: successRefNum });
-                                    }}
-                                    className="bg-[#125f43ff] py-3.5 rounded-xl w-full items-center flex-row justify-center shadow-lg"
-                                >
-                                    <Ionicons name="eye" size={18} color="white" />
-                                    <Text className="text-white font-bold text-base ml-2">Track Request Progress</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setFormData({
-                                            acquisitionType: '',
-                                            registrationStatus: '',
-                                            applicantInfo: {
-                                                fullName: user?.fullName || '',
-                                                nationalId: user?.faydaId || '',
-                                                kebeleIdFront: null,
-                                                kebeleIdBack: null,
-                                                applicantPhoto: null,
-                                                maritalStatus: '',
-                                                spouseName: '',
-                                                spouseNationalId: '',
-                                                spouseKebeleId: null,
-                                                spouseConsent: false,
-                                                relationshipToLand: '',
-                                                ownerName: '',
-                                                ownerNationalId: '',
-                                                authorizationDocument: null,
-                                                phone: user?.phone || '',
-                                                email: user?.email || '',
-                                                address: '',
-                                            },
-                                            landInfo: {
-                                                plotNumber: '',
-                                                previousCertificateNumber: '',
-                                                previousCertificate: null,
-                                                previousOwnerName: '',
-                                                transferDocument: null,
-                                                location: { region: '', zone: '', wereda: '', kebele: '' },
-                                                coordinates: { latitude: null, longitude: null },
-                                                dimensions: { area: '', perimeter: '', shape: '', landUseType: '' },
-                                                landStatus: 'free',
-                                                boundaries: { north: '', south: '', east: '', west: '' }
-                                            },
-                                            documents: {
-                                                proofOfAcquisition: null,
-                                                taxClearance: null,
-                                                sitePlan: null,
-                                                utilityBill: null,
-                                            },
-                                            commonDocuments: {
-                                                nationalIdCopy: null,
-                                                surveyMap: null,
-                                                landPhotos: [null, null, null, null],
-                                                witnesses: [
-                                                    { name: '', phone: '', idCopy: null, statement: null },
-                                                    { name: '', phone: '', idCopy: null, statement: null },
-                                                ],
-                                            },
-                                            acceptDeclaration1: false,
-                                            acceptDeclaration2: false,
-                                            acceptDeclaration3: false,
-                                        });
-                                        setCurrentSection(0);
-                                        setShowSuccessModal(false);
-                                    }}
-                                    className="border border-gray-200 bg-white py-3 rounded-xl w-full items-center flex-row justify-center"
-                                >
-                                    <Ionicons name="refresh" size={18} color="#4B5563" />
-                                    <Text className="text-gray-600 font-bold text-base ml-2">Submit Another Request</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
             </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
     );

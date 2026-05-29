@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
     View,
     Text,
@@ -10,9 +10,10 @@ import {
     ActivityIndicator,
     KeyboardAvoidingView,
     Platform,
+    TouchableWithoutFeedback,
     Keyboard,
     Modal,
-    TouchableWithoutFeedback
+    Dimensions
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -21,7 +22,11 @@ import { useNavigation } from '@react-navigation/native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as Location from 'expo-location';
 import { useAuth } from '../context/AuthContext';
-import { API_URL } from '../api/config';
+import { submitServiceRequest } from '../api/requests';
+import { buildTransferPayload } from '../utils/serviceRequestPayload';
+import { missingRequiredDocs } from '../utils/documentUpload';
+import { getRequiredDocs } from '../constants/documentRequirements';
+import { SubmitSuccessView } from '../components/forms/SubmitSuccessView';
 
 type RootStackParamList = {
     OwnershipTransfer: undefined;
@@ -205,23 +210,24 @@ const PhotoUploadField = ({
 
 export default function OwnershipTransferScreen() {
     const navigation = useNavigation<OwnershipTransferScreenProp>();
-    const { user, token } = useAuth();
+    const { token } = useAuth();
     const scrollViewRef = useRef<ScrollView>(null);
     const [currentSection, setCurrentSection] = useState(0);
+    const [submittedRequest, setSubmittedRequest] = useState<{ referenceNumber: string } | null>(null);
 
     // Form State
     const [formData, setFormData] = useState({
         transferType: '',
 
         currentOwner: {
-            fullName: '',
-            nationalId: '',
-            phone: '',
-            email: '',
-            address: '',
-            kebeleIdFront: null as any,
-            kebeleIdBack: null as any,
-            ownershipCertificate: null as any,
+            fullName: 'Abebe Gizaw',
+            nationalId: '1234 5678 9012 3456',
+            phone: '+251 911 234 567',
+            email: 'abebe@example.com',
+            address: 'Bahir Dar, Kebele 03',
+            kebeleIdFront: null,
+            kebeleIdBack: null,
+            ownershipCertificate: null,
         },
 
         newOwner: {
@@ -231,15 +237,15 @@ export default function OwnershipTransferScreen() {
             email: '',
             address: '',
             relationship: '',
-            kebeleIdFront: null as any,
-            kebeleIdBack: null as any,
+            kebeleIdFront: null,
+            kebeleIdBack: null,
         },
 
         landInfo: {
             plotNumber: '',
             certificateNumber: '',
             location: { region: '', zone: '', wereda: '', kebele: '' },
-            coordinates: { latitude: null as any, longitude: null as any },
+            coordinates: { latitude: null, longitude: null },
             landSize: '',
             landSizeUnit: 'm²',
             landUseType: '', // Residential, Commercial, Agricultural, Mixed
@@ -259,25 +265,25 @@ export default function OwnershipTransferScreen() {
         },
 
         documents: {
-            saleContract: null as any,
-            paymentReceipt: null as any,
-            taxClearance: null as any,
-            giftAgreement: null as any,
-            relationshipProof: null as any,
-            deathCertificate: null as any,
-            inheritanceCourtDocument: null as any,
-            familyAgreement: null as any,
-            heirList: null as any,
-            exchangeAgreement: null as any,
-            valuationReport: null as any,
-            courtDecision: null as any,
-            courtOrder: null as any,
-            currentOwnershipCertificate: null as any,
-            currentOwnerIdCopy: null as any,
-            newOwnerIdCopy: null as any,
+            saleContract: null,
+            paymentReceipt: null,
+            taxClearance: null,
+            giftAgreement: null,
+            relationshipProof: null,
+            deathCertificate: null,
+            inheritanceCourtDocument: null,
+            familyAgreement: null,
+            heirList: null,
+            exchangeAgreement: null,
+            valuationReport: null,
+            courtDecision: null,
+            courtOrder: null,
+            currentOwnershipCertificate: null,
+            currentOwnerIdCopy: null,
+            newOwnerIdCopy: null,
             witnesses: [
-                { name: '', phone: '', idCopy: null as any, statement: null as any },
-                { name: '', phone: '', idCopy: null as any, statement: null as any },
+                { name: '', phone: '', idCopy: null, statement: null },
+                { name: '', phone: '', idCopy: null, statement: null },
             ],
         },
 
@@ -285,29 +291,12 @@ export default function OwnershipTransferScreen() {
         newOwnerDeclaration: false,
         bothAgree: false,
         noHiddenDisputes: false,
-        currentOwnerSignature: null as any,
-        newOwnerSignature: null as any,
+        currentOwnerSignature: null,
+        newOwnerSignature: null,
     });
-
-    useEffect(() => {
-        if (user) {
-            setFormData(prev => ({
-                ...prev,
-                currentOwner: {
-                    ...prev.currentOwner,
-                    fullName: user.fullName || '',
-                    nationalId: user.faydaId || '',
-                    phone: user.phone || '',
-                    email: user.email || '',
-                }
-            }));
-        }
-    }, [user]);
 
     const [loading, setLoading] = useState(false);
     const [locationLoading, setLocationLoading] = useState(false);
-    const [showSuccessModal, setShowSuccessModal] = useState(false);
-    const [successRefNum, setSuccessRefNum] = useState('');
 
     const sections = [
         { title: 'Transfer Type', icon: 'git-merge', required: true },
@@ -319,6 +308,7 @@ export default function OwnershipTransferScreen() {
         { title: 'Declarations', icon: 'shield-checkmark', required: true },
     ];
 
+    const CARD_WIDTH = Dimensions.get('window').width;
 
     // ✅ Calculate Tax Based on Land Use Type
     const calculateTax = () => {
@@ -521,6 +511,19 @@ export default function OwnershipTransferScreen() {
         return true;
     };
 
+    const isSectionValid = (sectionIndex: number) => {
+        switch (sectionIndex) {
+            case 0: return !!formData.transferType;
+            case 1: return !!formData.currentOwner.ownershipCertificate;
+            case 2: return !!formData.newOwner.fullName && !!formData.newOwner.nationalId && !!formData.newOwner.relationship;
+            case 3: return !!formData.landInfo.plotNumber && !!formData.landInfo.landSize && parseFloat(formData.landInfo.landSize) > 0 && !!formData.landInfo.location.kebele;
+            case 4: return !(formData.transferType === 'sale' && !formData.transferDetails.transferPrice);
+            case 5: return !!formData.documents.currentOwnershipCertificate;
+            case 6: return !!formData.currentOwnerDeclaration && !!formData.newOwnerDeclaration && !!formData.bothAgree;
+            default: return true;
+        }
+    };
+
     const goToSection = (index: number) => {
         if (index > currentSection && !validateSection(currentSection)) return;
         setCurrentSection(index);
@@ -540,86 +543,53 @@ export default function OwnershipTransferScreen() {
 
     const handleSubmit = async () => {
         if (!validateSection(6)) return;
+        if (!token) {
+            Alert.alert('Login required', 'Please sign in to submit this request.');
+            return;
+        }
 
         setLoading(true);
-        const taxInfo = calculateTax();
-
         try {
-            const response = await fetch(`${API_URL}/requests`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                },
-                body: JSON.stringify({
-                    type: 'Ownership Transfer',
-                    plotNumber: formData.landInfo.plotNumber,
-                    region: formData.landInfo.location.region,
-                    zone: formData.landInfo.location.zone,
-                    wereda: formData.landInfo.location.wereda,
-                    kebele: formData.landInfo.location.kebele,
-                    landSize: formData.landInfo.landSize,
-                    landUseType: formData.landInfo.landUseType,
-                    metadata: {
-                        transferType: formData.transferType,
-                        currentOwner: {
-                            fullName: formData.currentOwner.fullName,
-                            nationalId: formData.currentOwner.nationalId,
-                            phone: formData.currentOwner.phone,
-                            email: formData.currentOwner.email,
-                            address: formData.currentOwner.address
-                        },
-                        newOwner: {
-                            fullName: formData.newOwner.fullName,
-                            nationalId: formData.newOwner.nationalId,
-                            phone: formData.newOwner.phone,
-                            email: formData.newOwner.email,
-                            address: formData.newOwner.address,
-                            relationship: formData.newOwner.relationship
-                        },
-                        transferDetails: {
-                            transferDate: formData.transferDetails.transferDate,
-                            transferPrice: formData.transferDetails.transferPrice,
-                            paymentMethod: formData.transferDetails.paymentMethod,
-                            bankName: formData.transferDetails.bankName,
-                            transactionRef: formData.transferDetails.transactionRef,
-                            reason: formData.transferDetails.reason,
-                            effectiveDate: formData.transferDetails.effectiveDate
-                        },
-                        landInfo: {
-                            certificateNumber: formData.landInfo.certificateNumber,
-                            landStatus: formData.landInfo.landStatus,
-                            boundaries: formData.landInfo.boundaries,
-                            encumbrances: formData.landInfo.encumbrances
-                        },
-                        taxInfo: {
-                            taxRate: taxInfo.taxRate,
-                            taxAmount: taxInfo.taxAmount,
-                            totalAmount: taxInfo.totalAmount
-                        }
-                    }
-                })
-            });
-
-            const data = await response.json();
-            if (response.ok) {
-                const refNum = data.request?.referenceNumber || `TRF-${new Date().getFullYear()}-${Math.random().toString(36).substr(2, 6).toUpperCase()}`;
-                setSuccessRefNum(refNum);
-                setShowSuccessModal(true);
-            } else {
-                Alert.alert('Error', data.error || 'Submission failed');
+            const payload = await buildTransferPayload(formData);
+            const missing = missingRequiredDocs(
+                getRequiredDocs('Ownership Transfer'),
+                payload.documents
+            );
+            if (missing.length > 0) {
+                Alert.alert('Missing documents', `Please upload: ${missing.join(', ')}`);
+                return;
             }
-        } catch (error) {
-            Alert.alert('Error', 'Network error. Please try again.');
+
+            const data = await submitServiceRequest(token, 'Ownership Transfer', payload);
+            setSubmittedRequest({ referenceNumber: data.request.referenceNumber });
+        } catch (error: unknown) {
+            Alert.alert('Error', error instanceof Error ? error.message : 'Submission failed');
         } finally {
             setLoading(false);
         }
     };
 
+    if (submittedRequest) {
+        return (
+            <SubmitSuccessView
+                title="Transfer submitted"
+                subtitle="Your ownership transfer request was received."
+                referenceNumber={submittedRequest.referenceNumber}
+                onTrack={() =>
+                    navigation.navigate('RequestDetail', {
+                        referenceNumber: submittedRequest.referenceNumber,
+                    })
+                }
+                onHome={() => navigation.navigate('MainApp')}
+            />
+        );
+    }
+
     const renderSectionCard = (section: any, index: number) => (
         <ScrollView
             key={index}
-            className="w-full px-6"
+            className="px-6"
+            style={{ width: CARD_WIDTH }}
             showsVerticalScrollIndicator={true}
             keyboardShouldPersistTaps="handled"
             contentContainerStyle={{ paddingBottom: 20 }}
@@ -671,7 +641,8 @@ export default function OwnershipTransferScreen() {
                 {currentSection < (sections || []).length - 1 ? (
                     <TouchableOpacity
                         onPress={handleContinue}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={!isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${!isSectionValid(currentSection) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         <Text className="text-white text-base font-bold mr-2">Continue</Text>
                         <Ionicons name="arrow-forward" size={20} color="white" />
@@ -679,8 +650,8 @@ export default function OwnershipTransferScreen() {
                 ) : (
                     <TouchableOpacity
                         onPress={handleSubmit}
-                        disabled={loading}
-                        className="flex-row items-center bg-[#125f43ff] px-6 py-3 rounded-xl shadow-lg"
+                        disabled={loading || !isSectionValid(currentSection)}
+                        className={`flex-row items-center px-6 py-3 rounded-xl shadow-lg ${(loading || !isSectionValid(currentSection)) ? 'bg-gray-400' : 'bg-[#125f43ff]'}`}
                     >
                         {loading ? (
                             <ActivityIndicator size="small" color="white" />
@@ -1618,140 +1589,12 @@ export default function OwnershipTransferScreen() {
                             </Text>
                         </View>
 
-                        {/* Active Section Card Container */}
-                        <View className="flex-1 w-full">
-                            {renderSectionCard((sections || [])[currentSection], currentSection)}
+                        {/* Active Section Card */}
+                        <View className="flex-1 w-full items-center">
+                            {(sections || []).length > 0 && renderSectionCard(sections[currentSection], currentSection)}
                         </View>
                     </LinearGradient>
                 </View>
-
-                {/* Premium Success Modal */}
-                <Modal
-                    visible={showSuccessModal}
-                    transparent={true}
-                    animationType="fade"
-                    statusBarTranslucent
-                    onRequestClose={() => setShowSuccessModal(false)}
-                >
-                    <View className="flex-1 bg-black/60 justify-center items-center px-6">
-                        <View className="bg-white rounded-3xl p-6 w-full max-w-md items-center shadow-2xl">
-                            {/* Checked Animated Ring */}
-                            <View className="w-20 h-20 bg-green-50 rounded-full items-center justify-center mb-4 border-4 border-green-100">
-                                <Ionicons name="checkmark-circle" size={54} color="#125f43" />
-                            </View>
-                            
-                            {/* Title */}
-                            <Text className="text-xl font-bold text-gray-800 text-center mb-1">
-                                Request Submitted!
-                            </Text>
-                            <Text className="text-xs text-gray-400 text-center mb-6">
-                                ማመልከቻዎ በተሳካ ሁኔታ ገብቷል!
-                            </Text>
-
-                            {/* Info Box */}
-                            <View className="bg-gray-50 rounded-2xl p-4 w-full mb-6 border border-gray-100">
-                                <View className="flex-row justify-between items-center mb-2">
-                                    <Text className="text-[10px] text-gray-500 font-semibold uppercase tracking-wider">Reference Number</Text>
-                                    <Text className="text-[10px] text-gray-400 font-medium">የማጣቀሻ ቁጥር</Text>
-                                </View>
-                                <View className="bg-white border border-gray-100 rounded-xl p-3 items-center flex-row justify-between mb-4">
-                                    <Text className="font-mono text-base font-bold text-gray-800 tracking-wider">
-                                        {successRefNum}
-                                    </Text>
-                                    <TouchableOpacity 
-                                        onPress={() => {
-                                            Alert.alert('Copied', 'Reference number copied to clipboard!');
-                                        }}
-                                        className="p-1.5 bg-gray-100 rounded-lg"
-                                    >
-                                        <Ionicons name="copy-outline" size={16} color="#4B5563" />
-                                    </TouchableOpacity>
-                                </View>
-
-                                <View className="flex-row items-center justify-between border-t border-gray-100 pt-3">
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="time-outline" size={16} color="#6B7280" />
-                                        <Text className="text-xs text-gray-600 font-medium ml-1.5">Estimated Processing</Text>
-                                    </View>
-                                    <Text className="text-xs font-bold text-[#125f43ff]">14-30 Business Days</Text>
-                                </View>
-                            </View>
-
-                            {/* CTA Actions */}
-                            <View className="w-full gap-3">
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setShowSuccessModal(false);
-                                        navigation.navigate('RequestDetail', { referenceNumber: successRefNum });
-                                    }}
-                                    className="bg-[#125f43ff] py-3.5 rounded-xl w-full items-center flex-row justify-center shadow-lg"
-                                >
-                                    <Ionicons name="eye" size={18} color="white" />
-                                    <Text className="text-white font-bold text-base ml-2">Track Request Progress</Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setFormData({
-                                            transferType: '',
-                                            currentOwner: {
-                                                fullName: user?.fullName || '',
-                                                nationalId: user?.faydaId || '',
-                                                phone: user?.phone || '',
-                                                email: user?.email || '',
-                                                address: '',
-                                                kebeleIdCopy: null,
-                                                powerOfAttorney: null,
-                                                maritalStatus: '',
-                                                spouseConsent: null,
-                                            },
-                                            newOwner: {
-                                                fullName: '',
-                                                nationalId: '',
-                                                phone: '',
-                                                email: '',
-                                                address: '',
-                                                kebeleIdCopy: null,
-                                                photo: null,
-                                            },
-                                            landInfo: {
-                                                plotNumber: '',
-                                                certificateNumber: '',
-                                                originalCertificate: null,
-                                                location: { region: '', zone: '', wereda: '', kebele: '' },
-                                                area: '',
-                                                landUseType: '',
-                                                landStatus: 'free',
-                                                boundaries: { north: '', south: '', east: '', west: '' },
-                                                encumbrances: '',
-                                            },
-                                            transferDetails: {
-                                                transferPrice: '',
-                                                paymentReceipt: null,
-                                                transferAgreement: null,
-                                                witnesses: [
-                                                    { name: '', phone: '', signature: null },
-                                                    { name: '', phone: '', signature: null },
-                                                ],
-                                            },
-                                            acceptDeclaration1: false,
-                                            acceptDeclaration2: false,
-                                            acceptDeclaration3: false,
-                                            currentOwnerSignature: null,
-                                            newOwnerSignature: null,
-                                        });
-                                        setCurrentSection(0);
-                                        setShowSuccessModal(false);
-                                    }}
-                                    className="border border-gray-200 bg-white py-3 rounded-xl w-full items-center flex-row justify-center"
-                                >
-                                    <Ionicons name="refresh" size={18} color="#4B5563" />
-                                    <Text className="text-gray-600 font-bold text-base ml-2">Submit Another Request</Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </Modal>
             </KeyboardAvoidingView>
         </TouchableWithoutFeedback>
     );
