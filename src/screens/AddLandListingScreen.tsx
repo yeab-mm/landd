@@ -31,6 +31,7 @@ type RootStackParamList = {
     MyRequests: undefined;
     MainApp: undefined;
     TrackRequest: { referenceNumber: string };
+    RequestDetail: { referenceNumber: string };
 };
 
 type AddLandListingScreenProp = StackNavigationProp<RootStackParamList, 'AddLandListing'>;
@@ -326,7 +327,7 @@ export default function AddLandListingScreen() {
                     <View className="w-full gap-4">
                         <Button
                             title="Track Request"
-                            onPress={() => navigation.navigate('TrackRequest', { referenceNumber: submittedRequest.referenceNumber })}
+                            onPress={() => navigation.navigate('RequestDetail', { referenceNumber: submittedRequest.referenceNumber })}
                             icon={"search" as const}
                             className="bg-emerald-700 h-14"
                         />

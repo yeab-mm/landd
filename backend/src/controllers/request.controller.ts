@@ -105,8 +105,12 @@ export const createRequest = async (req: Request, res: Response) => {
 
         const staffMsg = `New ${type} request (${referenceNumber}) for plot ${plot}.`;
         await Promise.all([
+            notifyUser(userId, {
+                title: 'Request submitted',
+                message: `Your ${type} (${referenceNumber}) was received. An admin will review your documents, then forward to an officer for final approval.`,
+                type: 'info',
+            }),
             notifyRole('Admin', { title: 'New request submitted', message: staffMsg, type: 'info' }),
-            notifyRole('Officer', { title: 'New request submitted', message: staffMsg, type: 'info' }),
         ]);
 
         return res.status(201).json({
@@ -427,12 +431,29 @@ export const updateRequestStatus = async (req: Request, res: Response) => {
             },
         });
 
-        if (normalizedStatus === 'assigned to officer' && isAdmin) {
-            await notifyRole('Officer', {
-                title: 'Request forwarded to officer queue',
-                message: `A request was forwarded for officer review (${updatedRequest.referenceNumber}).`,
+        if (normalizedStatus === 'document validation' && isAdmin) {
+            const ref = currentRequest.referenceNumber || 'your request';
+            await notifyUser(currentRequest.userId, {
+                title: 'Documents validated',
+                message: `Admin approved your documents for ${currentRequest.type} (${ref}). Your request will be forwarded to an officer soon.`,
                 type: 'info',
             });
+        }
+
+        if (normalizedStatus === 'assigned to officer' && isAdmin) {
+            const ref = updatedRequest.referenceNumber || 'your request';
+            await Promise.all([
+                notifyRole('Officer', {
+                    title: 'Request forwarded to officer queue',
+                    message: `A request was forwarded for officer review (${ref}).`,
+                    type: 'info',
+                }),
+                notifyUser(currentRequest.userId, {
+                    title: 'Forwarded to officer',
+                    message: `Your ${currentRequest.type} (${ref}) was forwarded to a land officer for final approval.`,
+                    type: 'info',
+                }),
+            ]);
         }
 
         if (normalizedStatus === 'rejected' && isAdmin) {

@@ -64,7 +64,7 @@ export function SubmitSuccessView({
 
         <View className="w-full gap-3">
           <Button title="Track request" onPress={onTrack} icon="search" />
-          <Button title="Back to home" onPress={onHome} variant="outline" />
+          <Button title="Back" onPress={onHome} variant="outline" icon="arrow-back" />
         </View>
       </View>
     </View>
